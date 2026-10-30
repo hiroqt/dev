@@ -122,9 +122,16 @@ struct WorkspaceView: View {
 
                 Section {
                     ForEach(store.clonedRepositories) { repository in
-                        Label(repository.name, systemImage: "shippingbox")
-                            .font(.system(size: 15, weight: .medium))
-                            .tag(Destination.project(repository.id, .overview))
+                        HStack(spacing: 8) {
+                            Label(repository.name, systemImage: "shippingbox")
+                                .font(.system(size: 15, weight: .medium))
+                            Spacer(minLength: 4)
+                            if let count = store.openPullRequestCounts[repository.id], count > 0 {
+                                pullRequestCountBadge(count)
+                                    .accessibilityIdentifier("sidebar-pr-count-\(repository.id)")
+                            }
+                        }
+                        .tag(Destination.project(repository.id, .overview))
                     }
                     if store.clonedRepositories.isEmpty {
                         Text("Clone a repository from All Projects")
@@ -195,7 +202,7 @@ struct WorkspaceView: View {
                         selection = .activity
                     }
                     ForEach(store.clonedRepositories) { repository in
-                        compactButton(repository.name, icon: "shippingbox", selected: isProjectSelected(repository.id), id: "compact-project-\(repository.id)") {
+                        compactButton(repository.name, icon: "shippingbox", selected: isProjectSelected(repository.id), id: "compact-project-\(repository.id)", badge: store.openPullRequestCounts[repository.id]) {
                             selection = .project(repository.id, .overview)
                         }
                     }
@@ -218,25 +225,39 @@ struct WorkspaceView: View {
         }
     }
 
-    private func compactButton(_ title: String, icon: String, selected: Bool, id: String, action: @escaping () -> Void) -> some View {
+    private func compactButton(_ title: String, icon: String, selected: Bool, id: String, badge: Int? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(selected ? Color.primary : Color.secondary)
-                .frame(width: 36, height: 36)
-                .background {
-                    if selected {
-                        RoundedRectangle(cornerRadius: 9)
-                            .fill(Color.primary.opacity(0.12))
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                    .frame(width: 36, height: 36)
+                    .background {
+                        if selected {
+                            RoundedRectangle(cornerRadius: 9)
+                                .fill(Color.primary.opacity(0.12))
+                        }
                     }
+                    .contentShape(RoundedRectangle(cornerRadius: 9))
+                if let badge, badge > 0 {
+                    pullRequestCountBadge(badge).offset(x: 5, y: -4)
                 }
-                .contentShape(RoundedRectangle(cornerRadius: 9))
+            }
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
         .help(title)
-        .accessibilityLabel(title)
+        .accessibilityLabel(badge.map { "\(title), \($0) open pull requests" } ?? title)
         .accessibilityIdentifier(id)
+    }
+
+    private func pullRequestCountBadge(_ count: Int) -> some View {
+        Text(count > 99 ? "99+" : count.formatted())
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 18, minHeight: 18)
+            .background(Color.accentColor, in: Capsule())
     }
 
     private func showRepositorySearch() {
@@ -740,7 +761,7 @@ private struct ConnectionView: View {
                 ProgressView("Checking GitHub connection…")
             case .needsConfiguration:
                 Text("Your GitHub workspace starts here").font(.title2.bold())
-                Text("Sign in to see repositories you can access. dev only reads GitHub data.")
+                Text("Sign in to see repositories you can access. dev can create, comment on, review, and merge pull requests.")
                     .foregroundStyle(.secondary)
                 Button {
                     store.startSignIn()
@@ -762,7 +783,7 @@ private struct ConnectionView: View {
                 }
             case .signedOut:
                 Text("Connect your GitHub account").font(.title2.bold())
-                Text("Sign in to load repositories you can access. dev only reads GitHub data.")
+                Text("Sign in to load repositories you can access. dev can create, comment on, review, and merge pull requests.")
                     .foregroundStyle(.secondary)
                 Button { store.startSignIn() } label: {
                     Label {
@@ -874,9 +895,24 @@ private struct ProjectWorkspaceView: View {
     let page: ProjectPage
     let openAllProjects: () -> Void
     let navigate: (ProjectPage) -> Void
+    @State private var showingCreatePullRequest = false
+    @State private var createPullRequestHead: String?
+    @State private var openedPullRequestNumber: Int?
 
     var body: some View {
         ScrollView {
+        if page == .pullRequests,
+           let request = store.projectPullRequests.first(where: { $0.number == openedPullRequestNumber }) {
+            PullRequestDetailView(
+                pullRequest: request,
+                repository: repository,
+                store: store,
+                onBack: { openedPullRequestNumber = nil }
+            )
+            .padding(28)
+            .frame(maxWidth: 1600, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        } else {
         VStack(alignment: .leading, spacing: 22) {
             HStack(spacing: 7) {
                 Button("All Projects", action: openAllProjects)
@@ -948,7 +984,17 @@ private struct ProjectWorkspaceView: View {
         .frame(maxWidth: 1600, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .task(id: repository.id) { await store.loadProjectHistory(repository: repository) }
+        }
+        .onChange(of: page) { _, newPage in
+            if newPage != .pullRequests { openedPullRequestNumber = nil }
+        }
+        .task(id: "\(repository.id)-\(page.rawValue)") {
+            await store.loadProjectHistory(repository: repository, forceRefresh: page == .pullRequests)
+        }
+        .sheet(isPresented: $showingCreatePullRequest, onDismiss: { createPullRequestHead = nil }) {
+            CreatePullRequestView(repository: repository, branches: store.projectBranches, store: store, initialHead: createPullRequestHead)
+                .frame(width: 520, height: 430)
+        }
     }
 
     @ViewBuilder
@@ -975,16 +1021,36 @@ private struct ProjectWorkspaceView: View {
                 commitTimeline
             }
         case .pullRequests:
-            if store.projectPullRequests.isEmpty { ContentUnavailableView("No pull requests returned", systemImage: "arrow.triangle.pull") }
-            else {
-                ForEach(store.projectPullRequests) { pullRequest in
-                    PullRequestCard(
-                        pullRequest: pullRequest,
-                        sourceURL: safeGitHubURL(pullRequest.htmlURL),
-                        repository: repository,
-                        store: store
-                    )
-                    .id("\(repository.id)-\(pullRequest.number)")
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("\(store.projectPullRequests.filter { $0.state == "open" }.count) open")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("New pull request", systemImage: "plus") {
+                        createPullRequestHead = nil
+                        showingCreatePullRequest = true
+                    }
+                        .disabled(store.projectBranches.count < 2 || store.pullRequestActionInProgress)
+                        .accessibilityIdentifier("create-pull-request")
+                }
+                if store.projectBranches.count < 2 {
+                    Text("A pushed source branch and a different base branch are needed to create a pull request.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if store.projectPullRequests.isEmpty {
+                    ContentUnavailableView("No pull requests returned", systemImage: "arrow.triangle.pull")
+                } else {
+                    ForEach(store.projectPullRequests) { pullRequest in
+                        PullRequestCard(
+                            pullRequest: pullRequest,
+                            sourceURL: safeGitHubURL(pullRequest.htmlURL),
+                            onOpen: {
+                                openedPullRequestNumber = pullRequest.number
+                                Task { await store.loadPullRequestDetail(pullRequest.number, repository: repository) }
+                            }
+                        )
+                        .id("\(repository.id)-\(pullRequest.number)")
+                    }
                 }
             }
         case .issues:
@@ -998,6 +1064,14 @@ private struct ProjectWorkspaceView: View {
                 Label("Remote branch graph", systemImage: "point.3.connected.trianglepath.dotted")
                     .font(.headline)
                 Spacer()
+                if let branch = store.selectedProjectBranch, branch != repository.defaultBranch {
+                    Button("Create pull request", systemImage: "arrow.triangle.pull") {
+                        createPullRequestHead = branch
+                        showingCreatePullRequest = true
+                    }
+                    .disabled(store.projectBranches.count < 2 || store.pullRequestActionInProgress)
+                    .accessibilityIdentifier("create-pull-request-from-selected-branch")
+                }
                 Text("GitHub · branch heads").font(.caption).foregroundStyle(.secondary)
             }
             ScrollView(.horizontal) {
@@ -1084,152 +1158,555 @@ private struct ProjectWorkspaceView: View {
         }
     }
 
-    private func safeGitHubURL(_ url: URL) -> URL? {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.scheme == "https", components.host == "github.com",
-              components.user == nil, components.password == nil, components.port == nil,
-              components.query == nil, components.fragment == nil else { return nil }
-        return url
+}
+
+private func safeGitHubURL(_ url: URL) -> URL? {
+    guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          components.scheme == "https", components.host == "github.com",
+          components.user == nil, components.password == nil, components.port == nil,
+          components.query == nil, components.fragment == nil else { return nil }
+    return url
+}
+
+private struct CreatePullRequestView: View {
+    @Environment(\.dismiss) private var dismiss
+    let repository: GitHubRepository
+    let branches: [GitHubBranch]
+    let store: WorkspaceStore
+    var initialHead: String? = nil
+    @State private var head = ""
+    @State private var base = ""
+    @State private var title = ""
+    @State private var requestBody = ""
+    @State private var errorMessage: String?
+
+    private var branchNames: [String] { branches.map(\.name) }
+    private var headOptions: [String] { branchNames.filter { $0 != base } }
+    private var canCreate: Bool {
+        !head.isEmpty && !base.isEmpty && head != base
+            && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !store.pullRequestActionInProgress
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Picker("Compare branch", selection: $head) {
+                    ForEach(headOptions, id: \.self) { Text($0).tag($0) }
+                }
+                Picker("Base branch", selection: $base) {
+                    ForEach(branchNames, id: \.self) { Text($0).tag($0) }
+                }
+                TextField("Pull request title", text: $title)
+                    .accessibilityIdentifier("new-pull-request-title")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Description")
+                    TextEditor(text: $requestBody).frame(minHeight: 120)
+                        .accessibilityIdentifier("new-pull-request-description")
+                }
+                if let errorMessage {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange).font(.callout)
+                }
+            }
+            .navigationTitle("Create pull request")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await create() }
+                    } label: {
+                        if store.pullRequestActionInProgress { ProgressView().controlSize(.small) }
+                        else { Text("Create") }
+                    }
+                    .disabled(!canCreate)
+                    .accessibilityIdentifier("submit-create-pull-request")
+                }
+            }
+            .onAppear {
+                base = repository.defaultBranch ?? branchNames.first ?? ""
+                head = initialHead.flatMap { branchNames.contains($0) && $0 != base ? $0 : nil }
+                    ?? branchNames.first(where: { $0 != base }) ?? ""
+            }
+            .onChange(of: base) { _, newBase in
+                if head == newBase { head = branchNames.first(where: { $0 != newBase }) ?? "" }
+            }
+        }
+    }
+
+    private func create() async {
+        do {
+            _ = try await store.createPullRequest(repository: repository, head: head, base: base, title: title, body: requestBody)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
 private struct PullRequestCard: View {
     let pullRequest: GitHubPullRequest
     let sourceURL: URL?
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 14) {
+                Image(systemName: pullRequest.state == "open" ? "arrow.triangle.pull" : "checkmark.circle")
+                    .font(.title3).foregroundStyle(pullRequest.state == "open" ? Color.green : Color.secondary)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("\(pullRequest.title) #\(pullRequest.number)")
+                        .font(.headline).fixedSize(horizontal: false, vertical: true)
+                    Text("\(pullRequest.state.capitalized) · @\(pullRequest.user?.login ?? "unknown") · updated \(displayGitHubTimestamp(pullRequest.updatedAt))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if sourceURL != nil {
+                    Image(systemName: "arrow.up.right")
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08)))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("pull-request-\(pullRequest.number)")
+    }
+}
+
+private enum PullRequestDetailTab: String, CaseIterable, Identifiable {
+    case conversation = "Conversation"
+    case commits = "Commits"
+    case checks = "Checks"
+    case filesChanged = "Files changed"
+    var id: String { rawValue }
+    var symbol: String {
+        switch self {
+        case .conversation: "text.bubble"
+        case .commits: "point.3.connected.trianglepath.dotted"
+        case .checks: "checklist"
+        case .filesChanged: "doc.text"
+        }
+    }
+}
+
+private struct PullRequestDetailView: View {
+    let pullRequest: GitHubPullRequest
     let repository: GitHubRepository
     let store: WorkspaceStore
-    @State private var showsDetail = false
-    @State private var showsMergeConfirmation = false
+    let onBack: () -> Void
+    @State private var selectedTab: PullRequestDetailTab = .conversation
     @State private var responseText = ""
+    @State private var showsMergeConfirmation = false
+    @State private var mergeCommitTitle = ""
+    @State private var mergeCommitMessage = ""
 
     private var canWrite: Bool { pullRequest.state == "open" }
-
-    private var description: String {
-        (pullRequest.body?.isEmpty == false ? pullRequest.body : nil) ?? "No description provided."
+    private var commitCount: Int { pullRequest.commits ?? store.selectedPullRequestCommits.count }
+    private var fileCount: Int { pullRequest.changedFiles ?? store.selectedPullRequestFiles.count }
+    private var changeStats: String {
+        "+\(pullRequest.additions ?? store.selectedPullRequestFiles.reduce(0) { $0 + $1.additions }) −\(pullRequest.deletions ?? store.selectedPullRequestFiles.reduce(0) { $0 + $1.deletions })"
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("#\(pullRequest.number) \(pullRequest.title)")
-                        .font(.headline).fixedSize(horizontal: false, vertical: true)
-                    Text("\(pullRequest.mergedAt == nil ? pullRequest.state : "merged") · @\(pullRequest.user?.login ?? "unknown") · updated \(displayGitHubTimestamp(pullRequest.updatedAt))")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 12)
-                if let sourceURL { Link("Open PR", destination: sourceURL) }
+        VStack(alignment: .leading, spacing: 18) {
+            Button("Pull Requests", systemImage: "chevron.left", action: onBack)
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+
+            header
+            tabBar
+            if showsMergeConfirmation { mergeConfirmationView }
+
+            HStack(alignment: .top, spacing: 24) {
+                tabContent.frame(maxWidth: .infinity, alignment: .leading)
+                metadataSidebar.frame(width: 245, alignment: .topLeading)
             }
-            MarkdownMessageView(markdown: description, id: "pr-\(pullRequest.number)")
-            HStack {
-                Button(showsDetail ? "Hide files & discussion" : "Files & discussion") {
-                    showsDetail.toggle()
-                    if showsDetail { Task { await store.loadPullRequestDetail(pullRequest.number, repository: repository) } }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("pull-request-detail-\(pullRequest.number)")
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(pullRequest.title).font(.system(size: 27, weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("#\(pullRequest.number)").font(.system(size: 25)).foregroundStyle(.secondary)
+                Spacer(minLength: 10)
+                Button {
+                    selectedTab = .checks
+                } label: {
+                    Label(mergeStatus, systemImage: pullRequest.mergeable == true ? "checkmark.circle" : "circle")
                 }
-                .accessibilityIdentifier("pull-request-detail-\(pullRequest.number)")
-                Spacer()
+                .buttonStyle(.bordered)
+                Menu {
+                    if let sourceURL = safeGitHubURL(pullRequest.htmlURL) {
+                        Link("Open on GitHub", destination: sourceURL)
+                    }
+                } label: {
+                    Label("Code", systemImage: "chevron.down")
+                }
+                .buttonStyle(.bordered)
                 if canWrite {
-                    Button("Merge…", systemImage: "arrow.triangle.merge") { showsMergeConfirmation = true }
+                    Button("Merge…", systemImage: "arrow.triangle.merge") { beginMergeConfirmation() }
+                        .buttonStyle(.borderedProminent)
                         .disabled(store.pullRequestActionInProgress)
                         .accessibilityIdentifier("pull-request-merge-\(pullRequest.number)")
                 }
             }
-            if showsDetail { detailContent }
-            if store.selectedPullRequestNumber == pullRequest.number, let message = store.pullRequestActionMessage {
-                Text(message).font(.caption).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("pull-request-action-message")
+            HStack(spacing: 7) {
+                Label(pullRequest.mergedAt == nil ? pullRequest.state.capitalized : "Merged", systemImage: pullRequest.mergedAt == nil ? (pullRequest.state == "open" ? "arrow.triangle.pull" : "checkmark") : "checkmark")
+                    .font(.callout.weight(.semibold))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(pullRequest.mergedAt != nil ? Color.purple : (pullRequest.state == "open" ? Color.green : Color.secondary), in: Capsule())
+                    .foregroundStyle(.white)
+                Text("@\(pullRequest.user?.login ?? "unknown") wants to merge \(commitCount) \(commitCount == 1 ? "commit" : "commits") into")
+                    .foregroundStyle(.secondary)
+                Text(pullRequest.base?.ref ?? "base")
+                    .font(.system(.callout, design: .monospaced).weight(.semibold))
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
+                Text("from") .foregroundStyle(.secondary)
+                Text(pullRequest.head?.ref ?? "head")
+                    .font(.system(.callout, design: .monospaced).weight(.semibold))
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                Spacer()
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 2)
+    }
+
+    private var mergeStatus: String {
+        if pullRequest.mergedAt != nil { return "Merged" }
+        if pullRequest.state == "closed" { return "Closed" }
+        if pullRequest.mergeable == true { return "Able to merge" }
+        if pullRequest.mergeable == false { return "Conflicts" }
+        return pullRequest.mergeableState?.replacingOccurrences(of: "_", with: " ").capitalized ?? "Merge status"
+    }
+
+    private var mergeConfirmationView: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "arrow.triangle.merge")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(Color.green, in: RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Commit message").font(.headline)
+                    TextField("Commit message", text: $mergeCommitTitle)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("merge-commit-title")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Extended description").font(.headline)
+                TextEditor(text: $mergeCommitMessage)
+                    .font(.body)
+                    .frame(minHeight: 120)
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.35)))
+                    .accessibilityIdentifier("merge-commit-description")
+            }
+
+            Text("GitHub will create the merge commit as @\(store.signedInUsername ?? pullRequest.user?.login ?? "your account").")
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Button("Confirm merge", systemImage: "arrow.triangle.merge") {
+                    showsMergeConfirmation = false
+                    Task {
+                        await store.mergePullRequest(repository: repository, number: pullRequest.number, commitTitle: mergeCommitTitle, commitMessage: mergeCommitMessage)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .disabled(mergeCommitTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.pullRequestActionInProgress)
+                .accessibilityIdentifier("confirm-pull-request-merge")
+                Button("Cancel") { showsMergeConfirmation = false }
+                    .buttonStyle(.bordered)
+            }
+        }
         .padding(16)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.08)))
-        .accessibilityIdentifier("pull-request-\(pullRequest.number)")
-        .confirmationDialog("Merge pull request #\(pullRequest.number)?", isPresented: $showsMergeConfirmation, titleVisibility: .visible) {
-            Button("Merge pull request", role: .destructive) {
-                Task { await store.mergePullRequest(repository: repository, number: pullRequest.number) }
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.35)))
+        .accessibilityIdentifier("merge-confirmation-form")
+    }
+
+    private func beginMergeConfirmation() {
+        let head = (pullRequest.head?.label ?? "\(repository.owner.login):\(pullRequest.head?.ref ?? "head")").replacingOccurrences(of: ":", with: "/")
+        mergeCommitTitle = "Merge pull request #\(pullRequest.number) from \(head)"
+        mergeCommitMessage = pullRequest.title
+        showsMergeConfirmation = true
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 4) {
+            ForEach(PullRequestDetailTab.allCases) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    HStack(spacing: 8) {
+                        Label(tab.rawValue, systemImage: tab.symbol)
+                        Text("\(count(for: tab))")
+                            .font(.caption.weight(.semibold).monospacedDigit())
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Color.primary.opacity(0.08), in: Capsule())
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .background(selectedTab == tab ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("pull-request-tab-\(tab.id.replacingOccurrences(of: " ", with: "-").lowercased())")
             }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This will merge the pull request on GitHub using a merge commit.")
+            Spacer(minLength: 8)
+            Text(changeStats).font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("pull-request-change-stats")
+        }
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.secondary.opacity(0.25)).frame(height: 1) }
+    }
+
+    private func count(for tab: PullRequestDetailTab) -> Int {
+        switch tab {
+        case .conversation: store.selectedPullRequestComments.count
+        case .commits: commitCount
+        case .checks: store.selectedPullRequestChecks.count
+        case .filesChanged: fileCount
         }
     }
 
     @ViewBuilder
-    private var detailContent: some View {
-        Divider()
-        if store.selectedPullRequestNumber != pullRequest.number {
-            Button("Load files and discussion") {
-                Task { await store.loadPullRequestDetail(pullRequest.number, repository: repository) }
+    private var tabContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if store.pullRequestDetailLoading {
+                ProgressView("Loading pull request details…").padding(.vertical, 30)
+            } else if let error = store.pullRequestDetailError {
+                ContentUnavailableView("Pull request details unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
+            } else {
+                switch selectedTab {
+                case .conversation: conversation
+                case .commits: commits
+                case .checks: checks
+                case .filesChanged: filesChanged
+                }
             }
-        } else if store.pullRequestDetailLoading {
-            ProgressView("Loading files and discussion…")
-        } else if let error = store.pullRequestDetailError {
-            Label(error, systemImage: "exclamationmark.triangle").font(.callout)
-        } else {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Changed files (\(store.selectedPullRequestFiles.count))").font(.headline)
-                if store.selectedPullRequestFiles.isEmpty { Text("No changed files returned.").foregroundStyle(.secondary) }
-                ForEach(store.selectedPullRequestFiles) { file in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("\(file.filename) · \(file.status) · +\(file.additions) −\(file.deletions)")
-                            .font(.caption.weight(.semibold)).textSelection(.enabled)
-                        if let patch = file.patch {
-                            ScrollView(.horizontal) {
-                                Text(patch).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }.padding(8).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
-                        } else {
-                            Text("Diff unavailable for this file.").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(10).background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 8))
-                }
+            if store.selectedPullRequestNumber == pullRequest.number, let message = store.pullRequestActionMessage {
+                Text(message).font(.callout).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("pull-request-action-message")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-                Text("Reviews").font(.headline)
-                ForEach(store.selectedPullRequestReviews) { review in
+    private var conversation: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 9) {
+                    Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(.secondary)
+                    Text("@\(pullRequest.user?.login ?? "unknown")").fontWeight(.semibold)
+                    Text("commented \(displayGitHubTimestamp(pullRequest.updatedAt))").foregroundStyle(.secondary)
+                    Spacer()
+                    Text("Author").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .overlay(Capsule().stroke(Color.accentColor.opacity(0.45)))
+                }
+                .padding(12)
+                .background(Color.accentColor.opacity(0.08))
+                MarkdownPreviewView(markdown: pullRequest.body?.isEmpty == false ? pullRequest.body! : "No description provided.")
+                    .padding(18)
+            }
+            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.accentColor.opacity(0.55), lineWidth: 1))
+
+            if store.selectedPullRequestComments.isEmpty && store.selectedPullRequestReviews.isEmpty && store.selectedPullRequestReviewComments.isEmpty {
+                ContentUnavailableView("No conversation yet", systemImage: "text.bubble")
+                    .frame(maxWidth: .infinity, minHeight: 90)
+            }
+            ForEach(store.selectedPullRequestComments) { comment in
+                discussionCard(author: comment.user?.login ?? "unknown", timestamp: comment.createdAt, body: comment.body, symbol: "text.bubble")
+            }
+            ForEach(store.selectedPullRequestReviews) { review in
+                discussionCard(author: review.user?.login ?? "unknown", timestamp: review.submittedAt, body: review.body ?? review.state, symbol: "checkmark.bubble")
+            }
+            ForEach(store.selectedPullRequestReviewComments) { comment in
+                discussionCard(author: comment.user?.login ?? "unknown", timestamp: comment.createdAt, body: "\(comment.path ?? "Changed file") · \(comment.body)", symbol: "text.bubble")
+            }
+
+            if canWrite { reviewComposer }
+        }
+    }
+
+    private func discussionCard(author: String, timestamp: String?, body: String, symbol: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol).foregroundStyle(.secondary)
+                Text("@\(author)").fontWeight(.semibold)
+                Text("commented \(displayGitHubTimestamp(timestamp))").foregroundStyle(.secondary)
+            }
+            Text(body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(14)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.15)))
+    }
+
+    private var commits: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Commits on this pull request").font(.headline)
+            if store.selectedPullRequestCommits.isEmpty {
+                ContentUnavailableView("No commits returned", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+            ForEach(store.selectedPullRequestCommits) { commit in
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(.tint).padding(.top, 6)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("\(review.state) · @\(review.user?.login ?? "unknown") · \(displayGitHubTimestamp(review.submittedAt))")
-                            .font(.caption.weight(.semibold))
-                        if let body = review.body, !body.isEmpty { Text(body).textSelection(.enabled) }
+                        Text(commit.commit.message.components(separatedBy: "\n").first ?? commit.sha)
+                            .fontWeight(.medium).lineLimit(2)
+                        Text("\(commit.sha.prefix(7)) · \(displayGitHubTimestamp(commit.commit.author?.date))")
+                            .font(.caption.monospaced()).foregroundStyle(.secondary)
                     }
+                    Spacer()
+                    Link("Open", destination: commit.htmlURL)
                 }
+                .padding(12)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
 
-                Text("Inline review comments").font(.headline)
-                ForEach(store.selectedPullRequestReviewComments) { comment in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(comment.path ?? "Changed file")\(comment.line.map { ":\($0)" } ?? "") · @\(comment.user?.login ?? "unknown") · \(displayGitHubTimestamp(comment.createdAt))")
-                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        Text(comment.body).textSelection(.enabled)
+    private var checks: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Checks").font(.headline)
+            if let error = store.selectedPullRequestChecksError {
+                ContentUnavailableView("Checks unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
+            } else if store.selectedPullRequestChecks.isEmpty {
+                ContentUnavailableView("No checks reported", systemImage: "checklist")
+            }
+            ForEach(store.selectedPullRequestChecks) { check in
+                HStack(spacing: 10) {
+                    Image(systemName: check.conclusion == "success" ? "checkmark.circle.fill" : check.status == "completed" ? "xmark.circle.fill" : "clock")
+                        .foregroundStyle(check.conclusion == "success" ? Color.green : check.status == "completed" ? Color.red : Color.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(check.name).fontWeight(.medium)
+                        Text(check.conclusion ?? check.status).font(.caption).foregroundStyle(.secondary)
                     }
+                    Spacer()
+                    if let url = check.htmlURL { Link("Details", destination: url) }
                 }
+                .padding(12)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
 
-                Text("Comments").font(.headline)
-                ForEach(store.selectedPullRequestComments) { comment in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("@\(comment.user?.login ?? "unknown") · \(displayGitHubTimestamp(comment.createdAt))")
-                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        Text(comment.body).textSelection(.enabled)
-                    }
-                }
-                if store.selectedPullRequestComments.isEmpty && store.selectedPullRequestReviews.isEmpty && store.selectedPullRequestReviewComments.isEmpty {
-                    Text("No comments or reviews yet.").foregroundStyle(.secondary)
-                }
-
-                if canWrite {
-                    Text("Comment or review").font(.headline)
-                    TextEditor(text: $responseText).font(.body).frame(minHeight: 70, maxHeight: 140)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
+    private var filesChanged: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Changed files (\(store.selectedPullRequestFiles.count))").font(.headline)
+            if store.selectedPullRequestFiles.isEmpty {
+                ContentUnavailableView("No changed files returned", systemImage: "doc.text")
+            }
+            ForEach(store.selectedPullRequestFiles) { file in
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Button("Comment") { submit(event: nil) }
-                        Button("Submit review") { submit(event: "COMMENT") }
-                        Button("Approve") { submit(event: "APPROVE") }
-                        Button("Request changes") { submit(event: "REQUEST_CHANGES") }
+                        Image(systemName: "doc.text").foregroundStyle(.secondary)
+                        Text(file.filename).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                        Spacer()
+                        Text("+\(file.additions)").foregroundStyle(.green)
+                        Text("−\(file.deletions)").foregroundStyle(.red)
                     }
-                    .disabled(responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.pullRequestActionInProgress)
+                    if let patch = file.patch {
+                        ScrollView(.horizontal) {
+                            Text(patch).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(10)
+                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        Text("Diff unavailable for this file.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(12)
+                .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.14)))
+            }
+        }
+    }
+
+    private var reviewComposer: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Leave a comment or review").font(.headline)
+            TextEditor(text: $responseText).font(.body).frame(minHeight: 85, maxHeight: 150)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
+                .accessibilityIdentifier("pull-request-review-response")
+            HStack {
+                Button("Comment") { submit(event: nil) }
+                Button("Submit review") { submit(event: "COMMENT") }
+                Button("Approve") { submit(event: "APPROVE") }
+                Button("Request changes") { submit(event: "REQUEST_CHANGES") }
+            }
+            .disabled(responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.pullRequestActionInProgress)
+        }
+        .padding(14)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var metadataSidebar: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            metadataSection("Reviewers") {
+                let requested = pullRequest.requestedReviewers ?? []
+                if requested.isEmpty {
+                    Text(store.selectedPullRequestReviews.isEmpty ? "No reviews" : store.selectedPullRequestReviews.map { "@\($0.user?.login ?? "unknown")" }.joined(separator: ", "))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(requested.enumerated()), id: \.offset) { _, reviewer in Text("@\(reviewer.login)") }
+                }
+                if canWrite { Text("Still in progress").foregroundStyle(.secondary) }
+            }
+            metadataSection("Assignees") {
+                let assignees = pullRequest.assignees ?? []
+                if assignees.isEmpty { Text("No one").foregroundStyle(.secondary) }
+                else { ForEach(Array(assignees.enumerated()), id: \.offset) { _, user in Text("@\(user.login)") } }
+            }
+            metadataSection("Labels") {
+                let labels = pullRequest.labels ?? []
+                if labels.isEmpty { Text("None yet").foregroundStyle(.secondary) }
+                else {
+                    HStack { ForEach(labels) { label in Text(label.name).font(.caption.weight(.medium)).padding(.horizontal, 8).padding(.vertical, 4).background(Color.accentColor.opacity(0.12), in: Capsule()) } }
                 }
             }
-            .font(.callout)
+            metadataSection("Projects") { Text("None yet").foregroundStyle(.secondary) }
+            metadataSection("Milestone") { Text(pullRequest.milestone?.title ?? "No milestone").foregroundStyle(.secondary) }
+            metadataSection("Development") {
+                Text("Successfully merging this pull request may close linked issues.").foregroundStyle(.secondary)
+                Text("None yet").foregroundStyle(.secondary)
+            }
+            metadataSection("Notifications") { Text("Notification settings are managed by GitHub.").foregroundStyle(.secondary) }
+        }
+        .font(.callout)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func metadataSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: "gearshape").font(.caption).foregroundStyle(.tertiary)
+            }
+            content()
+            Divider()
         }
     }
 
@@ -1469,7 +1946,7 @@ private struct SettingsView: View {
                 }
             }
             Section("Access") {
-                Text("GitHub access is read-only. Sign out removes the stored token and leaves any future local repository clones untouched.")
+                Text("GitHub writes are limited to pull request creation, comments, reviews, and confirmed merges. The app never pushes local branches. Sign out removes the token and leaves local clones untouched.")
                     .foregroundStyle(.secondary)
             }
         }

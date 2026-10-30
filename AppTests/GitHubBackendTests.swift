@@ -33,7 +33,7 @@ private actor RepositoryProviderStub: GitHubRepositoryProviding {
     func repositories(accessToken: String) async throws -> [GitHubRepository] {
         defer { requests += 1 }
         if requests == 0 { return [repository] }
-        throw GitHubBackendError.forbidden
+        throw GitHubBackendError.forbidden(nil)
     }
 }
 
@@ -44,6 +44,24 @@ private struct ContributionProviderStub: GitHubContributionProviding {
 
 private struct ViewerProviderStub: GitHubViewerProviding {
     func viewerLogin(accessToken: String) async throws -> String { "octocat" }
+}
+
+private actor ProjectHistoryProviderStub: GitHubProjectHistoryProviding {
+    let openRequests: [GitHubPullRequest]
+    private let pullRequestResponses: [[GitHubPullRequest]]
+    private var pullRequestResponseIndex = 0
+    init(openRequests: [GitHubPullRequest] = [], pullRequestResponses: [[GitHubPullRequest]] = []) {
+        self.openRequests = openRequests
+        self.pullRequestResponses = pullRequestResponses
+    }
+    func branches(repository: GitHubRepository, accessToken: String) async throws -> [GitHubBranch] { [] }
+    func commits(repository: GitHubRepository, branch: String, accessToken: String) async throws -> [GitHubCommit] { [] }
+    func pullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest] {
+        guard !pullRequestResponses.isEmpty else { return openRequests }
+        defer { pullRequestResponseIndex += 1 }
+        return pullRequestResponses[min(pullRequestResponseIndex, pullRequestResponses.count - 1)]
+    }
+    func openPullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest] { openRequests }
 }
 
 private struct FixedTokenStore: GitHubTokenStoring {
@@ -99,6 +117,55 @@ struct GitHubBackendTests {
         #expect(requests.allSatisfy { $0.httpMethod == "GET" && $0.value(forHTTPHeaderField: "Authorization") == "Bearer test-token" })
     }
 
+    @Test func loadsOnlyOpenPullRequestsForSidebarCount() async throws {
+        let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 3).utf8))
+        let transport = StubTransport([.init(statusCode: 200, data: Data(#"[{"number":8,"title":"Fix","state":"open","body":"","html_url":"https://github.com/owner/repo-3/pull/8","updated_at":"2026-10-30T12:00:00Z","user":{"login":"octocat"}}]"#.utf8), headers: [:])])
+        let open = try await GitHubAPIClient(transport: transport).openPullRequests(repository: repository, accessToken: "test-token")
+        let request = try #require(await transport.requests().first)
+        let query = URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?.queryItems
+
+        #expect(open.count == 1)
+        #expect(query?.first(where: { $0.name == "state" })?.value == "open")
+        #expect(request.httpMethod == "GET")
+    }
+
+    @Test func loadsPullRequestCommitsAndHeadChecksForReviewTabs() async throws {
+        let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 3).utf8))
+        let commit = #"[{"sha":"0123456789012345678901234567890123456789","html_url":"https://github.com/owner/repo-3/commit/0123456789012345678901234567890123456789","commit":{"message":"Add review workflow","author":{"date":"2026-10-30T12:00:00Z"}}}]"#
+        let checks = #"{"total_count":1,"check_runs":[{"id":7,"name":"Build","status":"completed","conclusion":"success","html_url":"https://github.com/owner/repo-3/actions/runs/7"}]}"#
+        let transport = StubTransport([
+            .init(statusCode: 200, data: Data(commit.utf8), headers: [:]),
+            .init(statusCode: 200, data: Data(checks.utf8), headers: [:])
+        ])
+        let api = GitHubAPIClient(transport: transport)
+
+        let commits = try await api.pullRequestCommits(repository: repository, number: 8, accessToken: "test-token")
+        let runs = try await api.pullRequestChecks(repository: repository, headSHA: "0123456789012345678901234567890123456789", accessToken: "test-token")
+        let requests = await transport.requests()
+
+        #expect(commits.first?.commit.message == "Add review workflow")
+        #expect(runs.first?.name == "Build")
+        #expect(runs.first?.conclusion == "success")
+        #expect(requests.map(\.httpMethod) == ["GET", "GET"])
+        #expect(requests[0].url?.path.hasSuffix("/pulls/8/commits") == true)
+        #expect(requests[1].url?.path.hasSuffix("/commits/0123456789012345678901234567890123456789/check-runs") == true)
+        #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer test-token" })
+    }
+
+    @Test func createsPullRequestOnGitHubWithSelectedBranches() async throws {
+        let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 3).utf8))
+        let response = #"{"number":9,"title":"Add feature","state":"open","body":"Details","html_url":"https://github.com/owner/repo-3/pull/9","updated_at":"2026-10-30T12:00:00Z","user":{"login":"octocat"}}"#
+        let transport = StubTransport([.init(statusCode: 201, data: Data(response.utf8), headers: [:])])
+        let pullRequest = try await GitHubAPIClient(transport: transport).createPullRequest(repository: repository, head: "feature", base: "main", title: "Add feature", body: "Details", accessToken: "test-token")
+        let request = try #require(await transport.requests().first)
+        let payload = try #require(request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] })
+
+        #expect(pullRequest.number == 9)
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/repos/owner/repo-3/pulls")
+        #expect(payload == ["head": "feature", "base": "main", "title": "Add feature", "body": "Details"])
+    }
+
     @Test func loadsPullRequestFilesAndDiscussionThenPostsReviewAndMerges() async throws {
         let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 3).utf8))
         let transport = StubTransport([
@@ -117,7 +184,7 @@ struct GitHubBackendTests {
         let reviews = try await api.pullRequestReviews(repository: repository, number: 8, accessToken: "test-token")
         try await api.comment(on: repository, number: 8, body: "Thanks", accessToken: "test-token")
         try await api.submitReview(on: repository, number: 8, body: "Approved", event: "APPROVE", accessToken: "test-token")
-        let merge = try await api.merge(repository: repository, number: 8, accessToken: "test-token")
+        let merge = try await api.merge(repository: repository, number: 8, commitTitle: "Merge PR #8", commitMessage: "Feature summary", accessToken: "test-token")
         let requests = await transport.requests()
 
         #expect(files.first?.filename == "Sources/App.swift")
@@ -132,6 +199,30 @@ struct GitHubBackendTests {
         #expect(commentBody["body"] == "Thanks")
         #expect(reviewBody["event"] == "APPROVE")
         #expect(requests[6].url?.path.hasSuffix("/pulls/8/merge") == true)
+        let mergeBody = try #require(requests[6].httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] })
+        #expect(mergeBody == ["merge_method": "merge", "commit_title": "Merge PR #8", "commit_message": "Feature summary"])
+    }
+
+    @Test func reportsGitHubMergeBlockersClearly() async throws {
+        let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 3).utf8))
+        for (code, expected) in [(405, GitHubBackendError.pullRequestNotMergeable), (409, GitHubBackendError.mergeConflict)] {
+            let transport = StubTransport([.init(statusCode: code, data: Data(), headers: [:])])
+            let api = GitHubAPIClient(transport: transport)
+            await #expect(throws: expected) {
+                try await api.merge(repository: repository, number: 8, commitTitle: "Merge PR #8", commitMessage: "Details", accessToken: "test-token")
+            }
+        }
+    }
+
+    @Test func preservesGitHubForbiddenReasonForPullRequestActions() async throws {
+        let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 3).utf8))
+        let payload = #"{"message":"Resource not accessible by integration","documentation_url":"https://docs.github.com/rest"}"#
+        let transport = StubTransport([.init(statusCode: 403, data: Data(payload.utf8), headers: [:])])
+        let api = GitHubAPIClient(transport: transport)
+
+        await #expect(throws: GitHubBackendError.forbidden("Resource not accessible by integration")) {
+            try await api.merge(repository: repository, number: 8, commitTitle: "Merge PR #8", commitMessage: "Details", accessToken: "test-token")
+        }
     }
 
     @Test func rejectsInvalidPullRequestWritesBeforeNetwork() async throws {
@@ -146,7 +237,10 @@ struct GitHubBackendTests {
             try await api.submitReview(on: repository, number: 8, body: "Looks fine", event: "MERGE", accessToken: "test-token")
         }
         await #expect(throws: GitHubBackendError.invalidPullRequestAction) {
-            try await api.merge(repository: repository, number: -1, accessToken: "test-token")
+            try await api.merge(repository: repository, number: -1, commitTitle: "Merge", commitMessage: "", accessToken: "test-token")
+        }
+        await #expect(throws: GitHubBackendError.invalidPullRequestAction) {
+            try await api.createPullRequest(repository: repository, head: "main", base: "main", title: "Title", body: "", accessToken: "test-token")
         }
         #expect(await transport.requests().isEmpty)
     }
@@ -297,7 +391,7 @@ struct GitHubBackendTests {
         let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 41).utf8))
         let api = RepositoryProviderStub(repository: repository)
         let tokens = FixedTokenStore(token: GitHubToken(accessToken: "keychain-token", refreshToken: nil, expiresAt: nil))
-        let store = WorkspaceStore(clientID: "client-id", api: api, viewerAPI: ViewerProviderStub(), tokenStore: tokens)
+        let store = WorkspaceStore(clientID: "client-id", api: api, historyAPI: ProjectHistoryProviderStub(), viewerAPI: ViewerProviderStub(), tokenStore: tokens)
 
         await store.restoreSession()
         #expect(store.connectionState == .connected)
@@ -308,6 +402,50 @@ struct GitHubBackendTests {
         await store.refresh()
         #expect(store.repositories.map(\.id) == [41])
         if case .stale = store.connectionState { } else { Issue.record("Expected prior remote data to remain visible as stale") }
+    }
+
+    @Test @MainActor func workspaceCountsOpenPullRequestsByRepository() async throws {
+        let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 44).utf8))
+        let requestData = Data(#"{"number":9,"title":"Add feature","state":"open","body":"","html_url":"https://github.com/owner/repo-44/pull/9","updated_at":"2026-10-30T12:00:00Z","user":{"login":"octocat"}}"#.utf8)
+        let request = try JSONDecoder().decode(GitHubPullRequest.self, from: requestData)
+        let history = ProjectHistoryProviderStub(openRequests: [request])
+        let tokens = FixedTokenStore(token: GitHubToken(accessToken: "keychain-token", refreshToken: nil, expiresAt: nil))
+        let store = WorkspaceStore(clientID: "client-id", historyAPI: history, tokenStore: tokens)
+
+        await store.refreshOpenPullRequestCounts(for: [repository], accessToken: "keychain-token")
+
+        #expect(store.openPullRequestCounts[repository.id] == 1)
+    }
+
+    @Test @MainActor func loadingProjectHistoryRefreshesItsOpenPullRequestBadge() async throws {
+        let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 45).utf8))
+        let requestData = Data(#"{"number":9,"title":"Add feature","state":"open","body":"","html_url":"https://github.com/owner/repo-45/pull/9","updated_at":"2026-10-30T12:00:00Z","user":{"login":"octocat"}}"#.utf8)
+        let request = try JSONDecoder().decode(GitHubPullRequest.self, from: requestData)
+        let history = ProjectHistoryProviderStub(openRequests: [request])
+        let tokens = FixedTokenStore(token: GitHubToken(accessToken: "keychain-token", refreshToken: nil, expiresAt: nil))
+        let store = WorkspaceStore(clientID: "client-id", historyAPI: history, tokenStore: tokens)
+
+        await store.loadProjectHistory(repository: repository)
+
+        #expect(store.projectPullRequests.map(\.number) == [9])
+        #expect(store.openPullRequestCounts[repository.id] == 1)
+    }
+
+    @Test @MainActor func enteringPullRequestsRefreshesPreviouslyLoadedProjectHistory() async throws {
+        let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 46).utf8))
+        let requestData = Data(#"{"number":10,"title":"Expose existing PR","state":"open","body":"","html_url":"https://github.com/owner/repo-46/pull/10","updated_at":"2026-10-30T12:00:00Z","user":{"login":"octocat"}}"#.utf8)
+        let request = try JSONDecoder().decode(GitHubPullRequest.self, from: requestData)
+        let history = ProjectHistoryProviderStub(pullRequestResponses: [[], [request]])
+        let tokens = FixedTokenStore(token: GitHubToken(accessToken: "keychain-token", refreshToken: nil, expiresAt: nil))
+        let store = WorkspaceStore(clientID: "client-id", historyAPI: history, tokenStore: tokens)
+
+        await store.loadProjectHistory(repository: repository)
+        #expect(store.projectPullRequests.isEmpty)
+
+        await store.loadProjectHistory(repository: repository, forceRefresh: true)
+
+        #expect(store.projectPullRequests.map(\.number) == [10])
+        #expect(store.openPullRequestCounts[repository.id] == 1)
     }
 
     @Test @MainActor func workspaceLoadsContributionActivityWithStoredToken() async throws {

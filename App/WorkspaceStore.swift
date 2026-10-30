@@ -68,11 +68,16 @@ final class WorkspaceStore {
     private(set) var selectedProjectBranch: String?
     private(set) var selectedProjectCommitSHA: String?
     private(set) var projectPullRequests: [GitHubPullRequest] = []
+    private(set) var openPullRequestCounts: [Int64: Int] = [:]
+    private var pullRequestCountRefreshRequestID = UUID()
     private(set) var selectedPullRequestNumber: Int?
     private(set) var selectedPullRequestFiles: [GitHubPullRequestFile] = []
     private(set) var selectedPullRequestComments: [GitHubPullRequestComment] = []
     private(set) var selectedPullRequestReviewComments: [GitHubPullRequestComment] = []
     private(set) var selectedPullRequestReviews: [GitHubPullRequestReview] = []
+    private(set) var selectedPullRequestCommits: [GitHubCommit] = []
+    private(set) var selectedPullRequestChecks: [GitHubCheckRun] = []
+    private(set) var selectedPullRequestChecksError: String?
     private(set) var pullRequestDetailLoading = false
     private(set) var pullRequestActionInProgress = false
     private(set) var pullRequestActionMessage: String?
@@ -172,8 +177,8 @@ final class WorkspaceStore {
         UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: clonedRepositoryPaths.map { (String($0.key), $0.value) }), forKey: "clonedRepositoryPaths")
     }
 
-    func loadProjectHistory(repository: GitHubRepository) async {
-        guard historyRepositoryID != repository.id || (!projectHistoryLoading && projectHistoryError != nil) else { return }
+    func loadProjectHistory(repository: GitHubRepository, forceRefresh: Bool = false) async {
+        guard historyRepositoryID != repository.id || (!projectHistoryLoading && (forceRefresh || projectHistoryError != nil)) else { return }
         historyRepositoryID = repository.id
         projectHistoryLoading = true
         projectHistoryError = nil
@@ -185,6 +190,9 @@ final class WorkspaceStore {
         selectedPullRequestComments = []
         selectedPullRequestReviewComments = []
         selectedPullRequestReviews = []
+        selectedPullRequestCommits = []
+        selectedPullRequestChecks = []
+        selectedPullRequestChecksError = nil
         pullRequestActionMessage = nil
         pullRequestDetailError = nil
         selectedProjectBranch = nil
@@ -205,6 +213,7 @@ final class WorkspaceStore {
             guard historyRepositoryID == repository.id else { return }
             projectBranches = result.0
             projectPullRequests = result.1
+            openPullRequestCounts[repository.id] = result.1.filter { $0.state == "open" }.count
             let branch = result.0.first(where: { $0.name == repository.defaultBranch })?.name ?? result.0.first?.name
             if let branch { await selectProjectBranch(branch, repository: repository, accessToken: accessToken) }
         } catch is CancellationError {
@@ -251,12 +260,71 @@ final class WorkspaceStore {
 
     func selectProjectCommit(_ sha: String) { selectedProjectCommitSHA = sha }
 
+    func refreshOpenPullRequestCounts(for repositories: [GitHubRepository], accessToken: String) async {
+        guard (try? tokenStore.load())?.accessToken == accessToken else { return }
+        let requestID = UUID()
+        pullRequestCountRefreshRequestID = requestID
+        let provider = historyAPI
+        let concurrencyLimit = 5
+        await withTaskGroup(of: (Int64, Int?).self) { group in
+            var nextRepository = 0
+            for repository in repositories.prefix(concurrencyLimit) {
+                group.addTask {
+                    do {
+                        let open = try await provider.openPullRequests(repository: repository, accessToken: accessToken)
+                        return (repository.id, open.count)
+                    } catch {
+                        return (repository.id, nil)
+                    }
+                }
+                nextRepository += 1
+            }
+            while let (repositoryID, count) = await group.next() {
+                guard pullRequestCountRefreshRequestID == requestID else { group.cancelAll(); return }
+                if let count { openPullRequestCounts[repositoryID] = count }
+                else { openPullRequestCounts[repositoryID] = nil }
+                if nextRepository < repositories.count {
+                    let repository = repositories[nextRepository]
+                    nextRepository += 1
+                    group.addTask {
+                        do {
+                            let open = try await provider.openPullRequests(repository: repository, accessToken: accessToken)
+                            return (repository.id, open.count)
+                        } catch {
+                            return (repository.id, nil)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func createPullRequest(repository: GitHubRepository, head: String, base: String, title: String, body: String) async throws -> GitHubPullRequest {
+        guard !pullRequestActionInProgress else { throw GitHubBackendError.invalidPullRequestAction }
+        pullRequestActionInProgress = true
+        pullRequestActionMessage = nil
+        defer { pullRequestActionInProgress = false }
+        let token = try await currentAccessToken()
+        let request = try await pullRequestAPI.createPullRequest(repository: repository, head: head, base: base, title: title, body: body, accessToken: token)
+        if !projectPullRequests.contains(where: { $0.number == request.number }) {
+            projectPullRequests.insert(request, at: 0)
+        }
+        openPullRequestCounts[repository.id] = projectPullRequests.filter { $0.state == "open" }.count
+        pullRequestActionMessage = "Pull request #\(request.number) created."
+        pullRequestCountRefreshRequestID = UUID()
+        Task { await refreshOpenPullRequestCounts(for: repositories, accessToken: token) }
+        return request
+    }
+
     func loadPullRequestDetail(_ number: Int, repository: GitHubRepository) async {
         selectedPullRequestNumber = number
         selectedPullRequestFiles = []
         selectedPullRequestComments = []
         selectedPullRequestReviewComments = []
         selectedPullRequestReviews = []
+        selectedPullRequestCommits = []
+        selectedPullRequestChecks = []
+        selectedPullRequestChecksError = nil
         pullRequestDetailError = nil
         pullRequestDetailLoading = true
         defer { if selectedPullRequestNumber == number { pullRequestDetailLoading = false } }
@@ -266,13 +334,25 @@ final class WorkspaceStore {
             async let comments = pullRequestAPI.pullRequestComments(repository: repository, number: number, accessToken: token)
             async let reviewComments = pullRequestAPI.pullRequestReviewComments(repository: repository, number: number, accessToken: token)
             async let reviews = pullRequestAPI.pullRequestReviews(repository: repository, number: number, accessToken: token)
-            let result = try await (files, comments, reviewComments, reviews)
+            async let commits = pullRequestAPI.pullRequestCommits(repository: repository, number: number, accessToken: token)
+            let headSHA = projectPullRequests.first(where: { $0.number == number })?.head?.sha
+            async let checks: (runs: [GitHubCheckRun], error: String?) = {
+                guard let sha = headSHA else {
+                    return ([], nil)
+                }
+                do { return (try await pullRequestAPI.pullRequestChecks(repository: repository, headSHA: sha, accessToken: token), nil) }
+                catch { return ([], error.localizedDescription) }
+            }()
+            let result = try await (files, comments, reviewComments, reviews, commits, checks)
             try Task.checkCancellation()
             guard selectedPullRequestNumber == number else { return }
             selectedPullRequestFiles = result.0
             selectedPullRequestComments = result.1
             selectedPullRequestReviewComments = result.2
             selectedPullRequestReviews = result.3
+            selectedPullRequestCommits = result.4
+            selectedPullRequestChecks = result.5.runs
+            selectedPullRequestChecksError = result.5.error
         } catch is CancellationError {
             return
         } catch {
@@ -294,13 +374,21 @@ final class WorkspaceStore {
         }
     }
 
-    func mergePullRequest(repository: GitHubRepository, number: Int) async {
+    func mergePullRequest(repository: GitHubRepository, number: Int, commitTitle: String, commitMessage: String) async {
         await performPullRequestAction(repository: repository, number: number) {
-            let result = try await self.pullRequestAPI.merge(repository: repository, number: number, accessToken: $0)
+            let result = try await self.pullRequestAPI.merge(repository: repository, number: number, commitTitle: commitTitle, commitMessage: commitMessage, accessToken: $0)
             guard result.merged else { throw GitHubBackendError.invalidResponse }
             self.pullRequestActionMessage = "Pull request merged."
+            if let index = self.projectPullRequests.firstIndex(where: { $0.number == number }) {
+                self.projectPullRequests[index].state = "closed"
+                self.projectPullRequests[index].mergedAt = ISO8601DateFormatter().string(from: Date())
+            }
+            if let count = self.openPullRequestCounts[repository.id] {
+                self.openPullRequestCounts[repository.id] = max(0, count - 1)
+            }
             do {
                 self.projectPullRequests = try await self.historyAPI.pullRequests(repository: repository, accessToken: $0)
+                self.openPullRequestCounts[repository.id] = self.projectPullRequests.filter { $0.state == "open" }.count
             } catch {
                 self.pullRequestActionMessage = "Pull request merged, but the PR list could not refresh. Refresh project history to verify its state."
             }
@@ -403,6 +491,8 @@ final class WorkspaceStore {
     func signOut() {
         do {
             try tokenStore.delete()
+            pullRequestCountRefreshRequestID = UUID()
+            openPullRequestCounts = [:]
             repositories = []
             signedInUsername = nil
             contributionActivityRequestID = UUID()
@@ -450,6 +540,7 @@ final class WorkspaceStore {
             repositories = fetched
             connectionState = .connected
             signedInUsername = try? await viewerAPI.viewerLogin(accessToken: token.accessToken)
+            Task { await refreshOpenPullRequestCounts(for: fetched, accessToken: token.accessToken) }
         } catch {
             if repositories.isEmpty {
                 throw error

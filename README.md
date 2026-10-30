@@ -1,6 +1,6 @@
 # dev
 
-Native macOS workspace for reviewing GitHub projects. The app fetches repositories from GitHub after Device Flow sign-in and supports comments, reviews, and confirmed merges on pull requests when the GitHub App has Pull requests: write permission. Add the registered GitHub App client ID to `Config/GitHub.xcconfig` and enable Device Flow in the App settings before signing in. The current client ID is intentionally blank.
+Native macOS workspace for reviewing GitHub projects. The app fetches repositories from GitHub after Device Flow sign-in and supports creating PRs from pushed branches, comments, reviews, and confirmed merges when the GitHub App has Pull requests: write permission. The sidebar shows each project’s open PR count. The app does not push local branches. Add the registered GitHub App client ID to `Config/GitHub.xcconfig` and enable Device Flow in the App settings before signing in. The current client ID is intentionally blank.
 
 ## Open and run
 
