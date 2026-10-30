@@ -24,10 +24,14 @@ After signing in to GitHub, the user can discover repositories they are permitte
 ## Navigation and visual direction
 
 - Use a familiar native macOS workspace shell: a persistent, collapsible sidebar beside a focused content area. Borrow the clear hierarchy and compact navigation pattern from Codex, while using `dev`’s own name, icons, colors, and GitHub-specific content.
-- The sidebar has **All Projects**, **Activity**, a **Projects** section listing one item per GitHub repository, and **Settings**. Selecting a project opens that repository’s workspace. Do not create a separate folder layer in v1.
+- The sidebar has **All Projects**, **Activity**, a **Projects** section listing registered GitHub projects, a visually distinct **Local Projects** section for explicitly added folders, and **Settings**. Local and GitHub projects remain separate even when they refer to the same remote. Project rows can be pinned and reordered, and their context menu can open the folder in an installed coding IDE, reveal it in Finder, copy its path, or remove its dev sidebar entry. Removing an entry preserves the folder and never changes GitHub.
 - The project workspace uses a small set of clear destinations: **Overview**, **Branches**, **Commits**, **Pull Requests**, and **Issues**. Contributors and activity appear in context in the overview and activity views.
 - Make the branch/commit graph the project’s main visual. Prefer source-linked branch, commit, PR, and status views over generic analytics charts. Keep remote GitHub state and local checkout state visibly labeled.
 - Keep the hierarchy understandable when many repositories or branches exist: search/filter the project list; show branch and commit collections inside the selected project view rather than expanding every commit into the global sidebar.
+- Replace All Projects landing content with a responsive welcome Overview. Start offers New project (create a named empty folder under a chosen parent), Open project (choose a local folder), and Clone project (choose an accessible GitHub repository and destination).
+- Show recent local/GitHub projects and at least five recently updated PRs with project identity and PR state. Show More only when additional PRs are available; More opens the full recent-PR list. More on projects opens a searchable recent-project picker.
+- Provide global, single-select animated background themes within workspace content areas; keep the app header unthemed. The default Pixel Mosaic fills the workspace with a large drifting pixel field inspired by the user reference; Terminal Stream renders a flowing ASCII luminance field, and Aurora Wave is one continuous pixelated wave rising from the bottom and cresting toward the top with subtle flowing glow and sparse sparkles. Respect Reduce Motion. Each theme has its own saved color choice from Aqua, Violet, Amber, and Emerald; Terminal Stream and Aurora Wave colors adapt to their selected palettes. The Overview right panel configures themes and no longer displays a commits heatmap.
+- Add a header **+** that opens a right-docked tool panel with an embedded browser, an interactive local terminal, a Codex launcher that starts the installed `codex` CLI in the selected project folder, a new-tab launcher, and the three most recently opened local or cloned projects. The Codex launcher uses the Codex logo. The main workspace resizes beside the panel without overlap. Selecting a project changes the main workspace and leaves the panel open. Tool tabs can be opened and closed independently; closing the last tab closes the panel. Full-screen expands the selected tool to the app content area.
 
 ## V1 scope
 
@@ -48,13 +52,20 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - Refresh local remote-tracking information through read-only fetch. Never push.
 - Do not overwrite a non-empty destination. Do not delete or replace a clone automatically.
 
+### Local projects
+
+- Let the user explicitly add any folder through the native folder picker; do not scan directories automatically.
+- Store a security-scoped bookmark so access can be restored across launches. Removing a project removes only its app entry, never its folder.
+- Give local projects a separate sidebar section and local-specific workspace with **Overview** and **Files**. The file view lists visible folder contents and allows folder navigation. Selecting a text file opens a bounded, read-only preview; Markdown uses the same Preview/Markdown/Expand controls as commit messages. Do not follow symlinks or show hidden files. Files cannot be edited. A user-launched terminal can execute commands with normal macOS account permissions; the selected project is its starting directory, not a filesystem restriction.
+- A local folder and a GitHub repository are separate entries, including when the folder's Git remote matches that repository.
+
 ### GitHub project details
 
 - **Pull requests:** list open and closed PRs; show title, author, reviewers, labels, checks/statuses, changed files and available patches, description, reviews, inline review comments, conversation comments, state, and merge time. Create a PR from branches already pushed to GitHub. On open PRs, allow a comment, a comment-only/approve/request-changes review, or a merge after confirmation. Show each project’s open PR count in the sidebar.
 - **Issues and bugs:** title, state, author, assignee, labels, recent activity, and GitHub link.
 - **Contributors:** contributor and PR-author identities, contribution context, and GitHub profile links. Avoid implying an exact ranking when GitHub data is incomplete.
 - **Recent items:** a cross-project activity feed for new/updated PRs, commits, issue changes, reviews, and merges, with project/type/state filters.
-- **Previews:** show links reported by GitHub checks or deployment statuses; open a selected link in the system browser. The app does not build, host, or embed a preview.
+- **Previews:** show links reported by GitHub checks or deployment statuses; open a selected link in the system browser. The app does not build or host a preview. A separate user-launched Browser tool can navigate ordinary HTTP(S) pages inside a tab, without a native JavaScript bridge.
 
 ### Generative AI and visualization
 
@@ -106,17 +117,20 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - New/changed PR detection covers all accessible repositories by default, runs on foreground and the configured polling schedule while the app is running, and shows per-repository stale state and rate-limit delays. Full PR details load on demand.
 - GitHub writes are limited to explicit PR creation, comments, reviews, and confirmed merges. Clone/fetch remain read operations; local cloning writes only under the user-selected destination. The app never pushes a local branch.
 - Any enabled AI explanation identifies its source records. AI is unavailable until its provider/data-handling choice and consent flow are defined.
-- The navigation consistently presents repositories as projects, with distinct cross-project **All Projects** and **Activity** destinations and project-specific **Overview**, **Branches**, **Commits**, **Pull Requests**, and **Issues** destinations.
+- The navigation consistently presents repositories as projects, with distinct cross-project **All Projects** and **Activity** destinations and project-specific **Overview**, **Branches**, **Commits**, **Pull Requests**, and **Issues** destinations. Project sidebar entries can be renamed and assigned a color and system icon for the sidebar, pinned, and drag-reordered; their settings/context menu can open the folder in an installed coding IDE, show its full path and reveal it in Finder, or remove only the dev entry while preserving local files and GitHub state. Sidebar labels, colors, and icons do not rename or modify the project itself.
 - The interface targets the latest macOS release supported at implementation and remains usable with keyboard navigation, VoiceOver labels, and system appearance settings.
 - Repository cards adapt their column count and content width to the available window size, including fullscreen; commit messages and PR descriptions appear with their own records and can be expanded or minimized, messages offer readable Preview and raw Markdown modes, timestamps use `MMM d, yyyy, h:mm a`, project navigation buttons have consistent padding, the sidebar identifies the signed-in GitHub username, and project rows show open PR counts.
+- Users can add any folder explicitly to Local Projects; local folders have a separate visual identity and Overview/Files pages. The Files page navigates visible folders and opens text files in a bounded, read-only preview; Markdown files share the commit message Preview/Markdown controls. Hidden files and symlinks are not opened, and removing an entry does not delete its files.
+- The welcome Overview provides New/Open/Clone actions, recent projects, at least five recent PRs and a full-list action when more are available, a searchable recent-project picker, and global selectable backgrounds with independently persisted per-theme Aqua, Violet, Amber, or Emerald colors that respect Reduce Motion.
+- The header tool panel docks at the right and can be resized across the available width while preserving a usable workspace area. Its width adapts to window resizing and uses the full content area when side-by-side layout no longer fits. It provides an embedded HTTP(S) browser, interactive local terminal, Codex launcher using the installed CLI and Codex logo, recent project shortcuts, multiple retained tabs, last-tab close behavior, and full content-area preview.
 
 ## Out of scope for v1
 
 - Editing GitHub issues or PRs, labels, branches, releases, or repository settings; closing PRs; resolving review threads; or running GitHub Actions.
 - Pushing commits or changing repository settings.
-- Editing, browsing, or executing source code in the app.
+- Editing source files in the app. Local text-file previews are read-only and are limited to 2 MB per file. The explicit user-launched Terminal tool is an approved exception and has normal macOS account permissions.
 - Creating additional Git worktrees or managing source changes. The app reports existing worktrees it can detect.
-- Building/hosting previews or embedding arbitrary preview pages.
+- Building/hosting previews. The explicit Browser tool may embed ordinary user-requested HTTP(S) pages but has no native bridge into app data or actions.
 - Webhook infrastructure, team administration, shared dashboards, and organization analytics.
 - AI code review or reading local/private source files for model prompts.
 - Automatically cloning every accessible repository or deleting local clones.
