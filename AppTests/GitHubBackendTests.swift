@@ -72,6 +72,17 @@ private struct FixedTokenStore: GitHubTokenStoring {
 }
 
 struct GitHubBackendTests {
+    @Test func localProjectBookmarkResolvesTheSelectedFolder() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let project = try LocalProject.adding(folder)
+
+        #expect(project.name == folder.lastPathComponent)
+        #expect(project.url?.standardizedFileURL == folder.standardizedFileURL)
+    }
+
     @Test func listsEveryRepositoryPageAndSendsReadOnlyAuthenticatedRequests() async throws {
         let firstPage = (1...100).map { repositoryJSON(id: $0) }.joined(separator: ",")
         let transport = StubTransport([

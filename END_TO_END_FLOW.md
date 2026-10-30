@@ -35,6 +35,9 @@ flowchart TD
     X -- No --> Y[Show error; preserve partial files; retry or choose another path]
     X -- Yes --> L
     U -- No --> J
+    J --> L1[Add Folder from Local Projects]
+    L1 --> L2[Choose any folder in native picker]
+    L2 --> L3[Save scoped bookmark; open local Overview or Files]
     J --> Z[Poll while app runs; show changed PRs and notifications]
     Z --> J
 ```
@@ -56,10 +59,20 @@ flowchart TD
 - If an expected organization is missing, explain that organization installation, SSO, or admin approval may be required and link to GitHub’s relevant settings. Never imply sign-in alone grants access to every repository.
 - Allow refresh of repository discovery.
 
+### 3. Welcome Overview
+
+- Keep the Overview available whether or not GitHub is connected. Show **New project**, **Open project**, and **Clone project** actions. New project validates a name and creates an empty child folder inside a user-selected parent; Open project bookmarks a user-selected folder; Clone project lists accessible GitHub repositories and reuses the protected clone flow.
+- Show recent projects and at least five recently updated PRs with project identity and status. Show **More** for PRs only when more than five are available; open the full recent-PR list. Project **More** opens a searchable recent-project picker.
+- The right Overview panel configures a single global background theme instead of showing a commits heatmap. Apply it below the app header, behind workspace content. Pixel Mosaic fills the workspace with a large, drifting pixel field; Terminal Stream renders a flowing ASCII luminance field in its selected palette; Aurora Wave is one continuous pixelated wave rising from the bottom toward the top, with subtle flowing glow and sparse sparkles in its selected palette. Each theme saves its own Aqua, Violet, Amber, or Emerald color choice. Keep motion subtle behind content and pause animation for Reduce Motion.
+- The header **+** opens a right-docked launcher with **Browser**, **Terminal**, **Codex**, and the three most recently opened local/GitHub projects. Selecting **Codex** opens a named Codex terminal tab, starts the `codex` CLI in the selected project folder, and shows the Codex logo. The workspace resizes beside the panel without overlap. Project shortcuts change the main workspace and leave the panel open. Browser/Terminal/Codex selections open retained tabs; closing each tab closes its session, and closing the final tab closes the panel. A new-tab action reopens the launcher. Full-screen replaces the app content region with the active tool while preserving the workspace sidebar and tab state.
+- Browser tabs navigate HTTP(S) pages without an app JavaScript bridge. The Terminal is an interactive local shell using the user's normal macOS permissions; the selected project is its initial working directory, not a filesystem sandbox. Stack or overlay the panel as needed on narrow windows without covering the header controls.
+
 ### 3. Projects dashboard
 
-- Use a collapsible workspace sidebar with **All Projects**, **Activity**, a **Projects** section containing one row per GitHub repository, and **Settings**. There is no separate folder layer in v1.
+- Use a collapsible workspace sidebar with **All Projects**, **Activity**, a **Projects** section containing one row per GitHub repository, and **Settings**. Local Projects is a separate section for explicitly selected folders; entries remain distinct from GitHub repositories.
 - Selecting a repository opens its project workspace. Keep long branch and commit lists inside that workspace so the sidebar remains scannable.
+- Drag the divider at the tool panel's left edge to adjust its width; width is remembered across launches and clamped to the current window while leaving at least 320 points for the workspace. Below the minimum side-by-side width, the panel uses the full content area.
+- Hover a project row to edit its sidebar name/color/icon, pin it, or open its settings menu; right-click offers the same actions. Drag a row onto another in its section to reorder; pinning moves it to the top of that section. Name, color, and icon affect only the sidebar. Open With lists installed coding IDEs; Show in Finder reveals the selected folder and the path item copies its full path. Remove from Sidebar removes only the app entry and preserves local files and GitHub state.
 - Show project cards/list rows with owner/repository, visibility, default branch, last push, clone state, and recent activity.
 - Provide search and owner/activity filters. Distinguish loading, no accessible repositories, partial permission, and network failure.
 - Recent items combine PR updates, commits, issue changes, reviews, and merges across accessible repositories; each item opens its GitHub source.
@@ -130,3 +143,10 @@ flowchart TD
 | API rate limit/offline | Preserve last known data, mark it stale, and show next refresh/retry. |
 | AI unavailable or disabled | Continue deterministic views; do not fabricate an AI summary. |
 | Preview URL invalid or unsupported scheme | Disable the link and explain that only web URLs can be opened. |
+
+### Local projects
+
+- Choose **Add Folder…** in the Local Projects sidebar section and select any folder in the native picker. No automatic scanning occurs.
+- The folder is saved as a security-scoped bookmark. **Remove from dev** removes only its sidebar entry and never deletes disk contents.
+- Local Overview shows the folder path and top-level item count. Files lists visible names and supports folder navigation. Selecting a text file opens a bounded, read-only preview; Markdown uses the same Preview/Markdown/Expand controls as commit messages. Hidden files and symlinks are not opened, and files over 2 MB or non-UTF-8/binary files show a clear unavailable message. The separate user-launched terminal can run commands with the app user's normal macOS permissions, with the selected project as its starting directory.
+- Local and GitHub projects remain distinct, even when a local repository has a matching GitHub remote.

@@ -25,23 +25,25 @@ flowchart LR
     UI --> Browser[System browser for GitHub/preview links]
 ```
 
-The macOS app owns presentation, local clone orchestration, caching, and polling. GitHub remains the source of truth for remote records. No app backend or webhook receiver is required for the chosen v1 flow. If a future AI provider requires a server-side secret or proxy, that is a separate architecture/security decision.
+The macOS app owns presentation, local project bookmarks and directory listing, local clone orchestration, caching, and polling. GitHub remains the source of truth for remote records. No app backend or webhook receiver is required for the chosen v1 flow. If a future AI provider requires a server-side secret or proxy, that is a separate architecture/security decision.
 
 ## 2. Modules and interfaces
 
 | Module | Responsibility | Interface expectation |
 |---|---|---|
-| App shell and navigation | Native workspace shell with collapsible sidebar, cross-project views, project workspace destinations, and settings | Views bind to view models; no network/Git work on the main actor. One GitHub repository is one project; v1 has no extra folder/group layer. |
+| App shell and navigation | Native workspace shell, welcome Overview, cross-project views, project workspace destinations, global themes, and the tabbed right-side tool panel | Views bind to view models; no network/Git work on the main actor. Overview remains usable without GitHub sign-in and provides New/Open/Clone, recents, a searchable picker, and recent PRs. The tool panel has a persistent draggable width, clamps to available window space while retaining 320 points for workspace content, and switches to full content width when side-by-side layout no longer fits. It retains independent Browser/Terminal/Codex tabs and three recent-project shortcuts; Codex starts the installed `codex` CLI in the selected local project. GitHub repositories and explicit local folders remain separate entries. |
 | GitHub session | Device authorization, installed-account discovery, token refresh/revocation handling | Exposes current account, granted repository access, and an authenticated request capability; token values never leave the session module. |
-| GitHub API adapter | REST reads for repositories, project history, PR files/comments/reviews and open-PR counts; explicit PR create/comment/review/merge operations; GraphQL contribution calendar and category totals | Typed results, pagination, cancellation, conditional requests, and structured auth/rate-limit/network failures. Only the listed PR actions write. Contribution queries use the signed-in viewer; private/internal contribution data depends on GitHub's optional `read:user` scope. |
+| GitHub API adapter | REST reads for repositories, bounded recent PR summaries across accessible repositories, project history, PR files/comments/reviews and open-PR counts; explicit PR create/comment/review/merge operations; GraphQL contribution calendar and category totals | Typed results, pagination, cancellation, conditional requests, and structured auth/rate-limit/network failures. Only the listed PR actions write. Contribution queries use the signed-in viewer; private/internal contribution data depends on GitHub's optional `read:user` scope. |
 | Repository catalog and activity | Merge fetched records into project summaries and recent feed | Source-linked records with fetched-at/stale state; deterministic mapping only. |
-| Local Git adapter | Clone, fetch, branch/commit graph, current branch, working-tree and worktree status | Takes a repository identity and user-selected destination; returns progress/status/errors. It performs no push or write to GitHub. |
-| Cache/preferences | Persist small app state and fetched metadata | Store accessible repository inventory, clone paths, refresh metadata and preferences; tokens only in Keychain. Cache can be cleared without deleting clones. |
+| Local Git and file access | Clone, fetch, branch/commit graph, current branch, working-tree/worktree status, terminal session starting directory, and selected-file preview | Git history reads only metadata. The local file viewer reads a user-selected text file from the bookmarked project folder into memory for read-only display, enforces folder containment, rejects symlinks and files over 2 MB, and never indexes or transmits contents. Terminal commands are explicitly user-launched and run with the app user's normal macOS permissions; project cwd is not a filesystem restriction. |
+| Embedded browser and terminal | User-launched HTTP(S) browser tabs and interactive local shell tabs | Browser uses WKWebView without a native JavaScript bridge; shell uses SwiftTerm's macOS PTY host. Keep each tab's view/session alive while switching tabs and close child processes when their tabs close. |
+| Appearance | Persisted workspace-content background theme, per-theme color palettes, and reduced-motion-aware animation | Theme selection is single-select, applies across workspace pages below the app header, and each theme saves its own Aqua, Violet, Amber, or Emerald palette. Content surfaces keep readable contrast. |
+| Cache/preferences | Persist small app state and fetched metadata | Store accessible repository inventory, clone paths, recent-project order, refresh metadata and preferences; tokens only in Keychain. Cache can be cleared without deleting clones. |
 | Poller and notifications | Detect new/changed PRs across accessible repositories | Runs only while app is active, configurable interval, deduplicates notifications, suspends/backoffs on rate limits. |
 | AI insight adapter | Optional grounded summaries and explanations | Provider-neutral interface; explicit selected-project input; returns explanation plus source IDs/URLs. Disabled until provider and consent are chosen. |
-| Preview/link opener | Open GitHub and preview destinations | Validate HTTP(S) URLs, require user action, delegate to system browser. |
+| Preview/link opener | Open GitHub and deployment preview destinations | Validate HTTPS URLs and require user action; GitHub-record preview links continue to use the system browser. The separate Browser tool may load user-entered HTTP(S) URLs in an isolated WKWebView. |
 
-Prefer Apple frameworks (`SwiftUI`, `URLSession`, `Security`/Keychain, `UserNotifications`, `FileManager`, and `Process`) and the system Git executable before adding dependencies. Confirm availability of Git at runtime and explain how to install the required developer tools if missing. Keep external GitHub API types behind the adapter so UI models do not depend on transport details.
+Prefer Apple frameworks (`SwiftUI`, `WebKit`, `URLSession`, `Security`/Keychain, `UserNotifications`, `FileManager`, and `Process`) and system Git. SwiftTerm 1.20.0 is the one new dependency because an interactive terminal needs a real PTY and VT100/Xterm renderer. Confirm Git availability at runtime. Keep external GitHub API types behind the adapter so UI models do not depend on transport details.
 
 ## 3. Authentication and authorization
 
@@ -70,13 +72,16 @@ Primary guidance: [GitHub REST API best practices](https://docs.github.com/en/re
 - Run Git as an argument-vector process (never interpolate user/repository strings into a shell command). Keep cancellation and progress visible. Check process exit status and present actionable errors.
 - Clone/fetch use read-only GitHub Contents access. Fetch updates remote-tracking refs; it does not push. The local working tree remains under the user’s control.
 - Report the local path, current branch, clean/modified state, ahead/behind data when known, local and remote refs, commit graph, and linked worktrees discoverable through Git. Label unavailable local state rather than substituting remote data.
-- Do not scan source files for AI, index source contents, run builds, delete clones, or alter local branches in v1.
+- Do not scan source files for AI, index source contents, run builds from the file viewer, delete clones, or alter local branches in v1. Selected text files can be read only for the user-visible, read-only preview.
 
 ## 6. Data, privacy, and AI
 
 - Persist only what is needed for project selection, clone association, refresh state, user settings, and an offline/stale metadata view. Use stable GitHub IDs; remove cached GitHub metadata on sign-out when the user chooses to clear local data. Never remove local clones as a side effect of sign-out.
 - Local repositories reside in the user-selected directory and follow normal macOS filesystem protection. The app must disclose that cloned repository files remain there after sign-out.
-- No AI provider is selected. The AI module is disabled until a provider, transmission scope, retention behavior, and explicit consent are defined. Never include secrets, credentials, or local file contents in prompts.
+- No AI provider is selected. The AI module is disabled until a provider, transmission scope, retention behavior, and explicit consent are defined. Never include secrets, credentials, or local file contents in prompts. Local preview contents stay in the app's view and are not persisted or transmitted.
+- Theme preference is local app state, stored separately from GitHub metadata and Keychain credentials. Animated backgrounds are decorative and do not collect or transmit data.
+- Browser tabs only navigate HTTP(S) URLs; do not expose app data/actions through JavaScript message handlers. GitHub preview links remain explicit user actions in the system browser.
+- Terminal commands inherit the macOS account permissions of the app. A selected project controls initial cwd only; present this distinction in the terminal launcher. Do not claim the terminal is sandboxed or project-confined.
 - Treat model output as untrusted. Validate its shape, label it as generated, and require cited fetched records for project-specific claims. Render the deterministic graph and status counts even when AI is unavailable.
 - Do not add telemetry by default. If telemetry is later proposed, document the fields, retention, destination, and opt-in before implementation.
 
@@ -84,8 +89,8 @@ Primary guidance: [GitHub REST API best practices](https://docs.github.com/en/re
 
 - All network and Git work is asynchronous, cancellable, and isolated from the UI thread. Present loading, empty, stale, offline, permission, rate-limit, and partial-data states separately.
 - No automatic retry loop without a bound. Use server retry guidance, bounded backoff, and a visible manual refresh.
-- Use SwiftUI controls with keyboard support, VoiceOver labels, contrast-aware system appearances, and non-color status cues.
-- Open preview URLs only on user action and only for HTTP(S). Do not load arbitrary preview content in an embedded privileged web view.
+- Use SwiftUI controls with keyboard support, VoiceOver labels, contrast-aware system appearances, and non-color status cues. The global animated theme is decorative, remains low contrast behind content, and pauses under Reduce Motion.
+- Open preview URLs only on user action. The dedicated browser tool accepts only HTTP(S), has no app bridge, and does not grant local-file access. GitHub-recorded preview links continue to open externally.
 - Unit-test pure graph/feed mapping and permission/error mapping. Test adapters through deterministic fake HTTP/Git processes; include integration smoke checks against a test repository/account before release. Keep the write surface to PR creation, PR issue comments, PR reviews, and PR merge; Git push and all other GitHub mutation paths remain unavailable.
 
 ## 8. Architecture decisions and tradeoffs
@@ -95,6 +100,8 @@ Primary guidance: [GitHub REST API best practices](https://docs.github.com/en/re
 | Native UI | SwiftUI macOS app | Matches the user’s platform and provides native accessibility and notifications. |
 | GitHub auth | GitHub App Device Flow + user access token | Native desktop flow and fine-grained permissions; PR create/comment/review/merge require Pull requests: write permission on the app and account/org installation. |
 | GitHub sync | Direct REST reads with polling | No backend/webhook service; slower than webhooks and constrained by rate limits. |
+| Interactive terminal | SwiftTerm 1.20.0 AppKit terminal and local PTY host | Provides actual shell and terminal emulation; commands retain normal user permissions. MIT license. |
+| In-app browser | WebKit `WKWebView` in tool tabs | Enables user-requested embedded browsing without exposing app APIs to page JavaScript. |
 | Local Git | System Git through a narrow process adapter | Avoids a Git library dependency; requires runtime availability checks and careful credential handoff. |
 | Local persistence | Keychain for credentials; small local metadata store for app state/cache | Separate secrets from ordinary cache; implementation can choose SwiftData or a small file-backed store after modeling the cache. |
 | AI | Provider-neutral module, gated until chosen | Preserves user’s undecided provider choice; AI is not release-ready until privacy/consent is settled. |

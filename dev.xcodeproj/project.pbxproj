@@ -19,7 +19,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		A10000000000000000000007 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000007 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000003B /* SwiftTerm in Frameworks */,); runOnlyForDeploymentPostprocessing = 0; };
 		A10000000000000000000008 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A10000000000000000000009 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
@@ -30,13 +30,13 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A1000000000000000000000C /* dev */ = {isa = PBXNativeTarget; buildConfigurationList = A10000000000000000000020; buildPhases = (A10000000000000000000010, A10000000000000000000007, A10000000000000000000011); buildRules = (); dependencies = (); fileSystemSynchronizedGroups = (A10000000000000000000001); name = dev; productName = dev; productReference = A10000000000000000000004; productType = "com.apple.product-type.application"; };
+		A1000000000000000000000C /* dev */ = {isa = PBXNativeTarget; buildConfigurationList = A10000000000000000000020; buildPhases = (A10000000000000000000010, A10000000000000000000007, A10000000000000000000011); buildRules = (); dependencies = (); fileSystemSynchronizedGroups = (A10000000000000000000001); name = dev; packageProductDependencies = (A1000000000000000000003A /* SwiftTerm */,); productName = dev; productReference = A10000000000000000000004; productType = "com.apple.product-type.application"; };
 		A1000000000000000000000D /* devTests */ = {isa = PBXNativeTarget; buildConfigurationList = A10000000000000000000021; buildPhases = (A10000000000000000000012, A10000000000000000000008, A10000000000000000000013); buildRules = (); dependencies = (A10000000000000000000019); fileSystemSynchronizedGroups = (A10000000000000000000002); name = devTests; productName = devTests; productReference = A10000000000000000000005; productType = "com.apple.product-type.bundle.unit-test"; };
 		A1000000000000000000000E /* devUITests */ = {isa = PBXNativeTarget; buildConfigurationList = A10000000000000000000022; buildPhases = (A10000000000000000000014, A10000000000000000000009, A10000000000000000000015); buildRules = (); dependencies = (A1000000000000000000001A); fileSystemSynchronizedGroups = (A10000000000000000000003); name = devUITests; productName = devUITests; productReference = A10000000000000000000006; productType = "com.apple.product-type.bundle.ui-testing"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		A1000000000000000000000F /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 2700; TargetAttributes = {A1000000000000000000000C = {CreatedOnToolsVersion = 27.0; }; A1000000000000000000000D = {CreatedOnToolsVersion = 27.0; TestTargetID = A1000000000000000000000C; }; A1000000000000000000000E = {CreatedOnToolsVersion = 27.0; TestTargetID = A1000000000000000000000C; }; }; }; buildConfigurationList = A1000000000000000000001F; compatibilityVersion = "Xcode 16.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A1000000000000000000000A; productRefGroup = A1000000000000000000000B; projectDirPath = ""; projectRoot = ""; targets = (A1000000000000000000000C, A1000000000000000000000D, A1000000000000000000000E); };
+		A1000000000000000000000F /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 2700; TargetAttributes = {A1000000000000000000000C = {CreatedOnToolsVersion = 27.0; }; A1000000000000000000000D = {CreatedOnToolsVersion = 27.0; TestTargetID = A1000000000000000000000C; }; A1000000000000000000000E = {CreatedOnToolsVersion = 27.0; TestTargetID = A1000000000000000000000C; }; }; }; buildConfigurationList = A1000000000000000000001F; compatibilityVersion = "Xcode 16.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A1000000000000000000000A; packageReferences = (A10000000000000000000039 /* XCRemoteSwiftPackageReference \"SwiftTerm\" */,); productRefGroup = A1000000000000000000000B; projectDirPath = ""; projectRoot = ""; targets = (A1000000000000000000000C, A1000000000000000000000D, A1000000000000000000000E); };
 /* End PBXProject section */
 
 /* Begin PBXTargetDependency section */
@@ -50,6 +50,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXBuildFile section */
+		A1000000000000000000003B /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000003A /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildPhase section */
@@ -60,6 +61,14 @@
 		A10000000000000000000014 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		A10000000000000000000015 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A10000000000000000000039 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/migueldeicaza/SwiftTerm.git"; requirement = {kind = exactVersion; version = 1.20.0; }; };
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A1000000000000000000003A /* SwiftTerm */ = {isa = XCSwiftPackageProductDependency; package = A10000000000000000000039 /* XCRemoteSwiftPackageReference "SwiftTerm" */; productName = SwiftTerm; };
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A10000000000000000000030 /* Debug Project */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 26.0; SWIFT_VERSION = 6.0; }; name = Debug; };

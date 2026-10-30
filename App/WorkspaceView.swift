@@ -6,60 +6,178 @@ struct WorkspaceView: View {
     @State private var selection: Destination? = .allProjects
     @State private var isSidebarVisible = true
     @State private var showingRepositorySearch = false
+    @State private var isToolPanelOpen = false
+    @State private var isToolLauncherVisible = true
+    @State private var isToolFullScreen = false
+    @State private var toolTabs: [WorkspaceToolTab] = []
+    @State private var selectedToolTabID: UUID?
+    @AppStorage("workspaceToolPanelWidth") private var storedToolPanelWidth = 440.0
+    @AppStorage("workspaceBackgroundTheme") private var backgroundThemeRawValue = WorkspaceBackgroundTheme.pixelMosaic.rawValue
+    @AppStorage("workspacePixelMosaicPalette") private var pixelMosaicPaletteRawValue = WorkspaceThemePalette.aqua.rawValue
+    @AppStorage("workspaceTerminalStreamPalette") private var terminalStreamPaletteRawValue = WorkspaceThemePalette.emerald.rawValue
+    @AppStorage("workspaceAuroraGridPalette") private var auroraGridPaletteRawValue = WorkspaceThemePalette.aqua.rawValue
+    @AppStorage("workspaceFontSize") private var workspaceFontSize = "medium"
+    @AppStorage("workspaceAppearance") private var workspaceAppearance = "system"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var selectedColorScheme: ColorScheme? {
+        switch workspaceAppearance {
+        case "light": .light
+        case "dark": .dark
+        default: nil
+        }
+    }
+
+    private var workspaceBackgroundColor: Color {
+        (selectedColorScheme ?? colorScheme) == .light
+            ? Color(nsColor: .windowBackgroundColor)
+            : Color(nsColor: .underPageBackgroundColor)
+    }
+
+    private var selectedDynamicTypeSize: DynamicTypeSize {
+        switch workspaceFontSize {
+        case "small": .small
+        case "large": .large
+        case "xl": .xxxLarge
+        default: .medium
+        }
+    }
+
+    private var selectedFontScale: CGFloat {
+        switch workspaceFontSize {
+        case "small": 0.85
+        case "large": 1.15
+        case "xl": 1.3
+        default: 1
+        }
+    }
+
+    private var backgroundTheme: WorkspaceBackgroundTheme {
+        WorkspaceBackgroundTheme(rawValue: backgroundThemeRawValue) ?? .pixelMosaic
+    }
+
+    private var backgroundPalette: WorkspaceThemePalette {
+        let rawValue: String
+        switch backgroundTheme {
+        case .pixelMosaic: rawValue = pixelMosaicPaletteRawValue
+        case .terminalStream: rawValue = terminalStreamPaletteRawValue
+        case .auroraGrid: rawValue = auroraGridPaletteRawValue
+        }
+        return WorkspaceThemePalette(rawValue: rawValue) ?? .aqua
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                HStack {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.22)) {
-                            isSidebarVisible.toggle()
+        ZStack {
+            workspaceBackgroundColor
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    HStack {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                isSidebarVisible.toggle()
+                            }
+                        } label: {
+                            Image(systemName: "sidebar.left")
+                                .frame(width: 30, height: 30)
+                                .contentShape(Rectangle())
                         }
-                    } label: {
-                        Image(systemName: "sidebar.left")
-                            .frame(width: 30, height: 30)
-                            .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+                        .accessibilityLabel(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+                        .accessibilityIdentifier("sidebar-toggle")
+                        Spacer(minLength: 0)
                     }
-                    .buttonStyle(.plain)
-                    .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
-                    .accessibilityLabel(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
-                    .accessibilityIdentifier("sidebar-toggle")
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, 14)
-                .frame(width: isSidebarVisible ? 240 : 52, height: 44)
-                HStack {
-                    Text(openedDestinationTitle)
-                        .font(.system(size: 14, weight: .semibold))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, 24)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(openedDestinationTitle)
-                .accessibilityIdentifier("workspace-header-title")
-            }
-            Divider()
-
-            HStack(spacing: 0) {
-                sidebar
-                    .frame(width: isSidebarVisible ? 240 : 52)
-                    .background(Color(nsColor: .windowBackgroundColor))
-                    .overlay(alignment: .trailing) {
-                        Rectangle()
-                            .fill(Color.primary.opacity(0.08))
-                            .frame(width: 1)
+                    .padding(.leading, 14)
+                    .frame(width: isSidebarVisible ? 240 : 52, height: 44)
+                    HStack {
+                        Text(openedDestinationTitle)
+                            .workspaceFont(size: 14, weight: .semibold)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("workspace-header-title")
+                        Spacer(minLength: 0)
+                        Button(action: openToolPanel) {
+                            Image(systemName: "plus")
+                                .frame(width: 30, height: 30)
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .help(isToolPanelOpen ? "New tool tab" : "Open tools")
+                        .accessibilityLabel(isToolPanelOpen ? "New tool tab" : "Open tools")
+                        .accessibilityIdentifier("workspace-tools-open")
+                        .padding(.trailing, 12)
                     }
-
-                VStack(spacing: 0) {
-                    destinationView
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .animation(.snappy(duration: 0.2), value: selection)
+                    .padding(.leading, 24)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("workspace-header")
                 }
+                .background(Color(nsColor: .windowBackgroundColor))
+                Divider()
+
+                HStack(spacing: 0) {
+                    sidebar
+                        .frame(width: isSidebarVisible ? 240 : 52)
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        .overlay(alignment: .trailing) {
+                            Rectangle()
+                                .fill(Color.primary.opacity(0.08))
+                                .frame(width: 1)
+                        }
+
+                    GeometryReader { geometry in
+                        ZStack {
+                            WorkspaceThemeBackdrop(theme: backgroundTheme, palette: backgroundPalette, reduceMotion: reduceMotion)
+                            HStack(spacing: 0) {
+                                let toolPanelUsesFullWidth = isToolFullScreen || geometry.size.width < 568
+                                destinationView
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .dynamicTypeSize(selectedDynamicTypeSize)
+                                    .environment(\.workspaceFontScale, selectedFontScale)
+                                    .animation(.snappy(duration: 0.2), value: selection)
+                                    .opacity(toolPanelUsesFullWidth ? 0 : 1)
+                                    .accessibilityHidden(toolPanelUsesFullWidth)
+                                    .frame(width: toolPanelUsesFullWidth ? 0 : nil)
+                                    .clipped()
+
+                                if isToolPanelOpen {
+                                    if !toolPanelUsesFullWidth {
+                                        ToolPanelResizeHandle(
+                                            width: $storedToolPanelWidth,
+                                            maximumWidth: geometry.size.width - 328
+                                        )
+                                    }
+                                    WorkspaceToolsPanel(
+                                        store: store,
+                                        tabs: $toolTabs,
+                                        selectedTabID: $selectedToolTabID,
+                                        showingLauncher: $isToolLauncherVisible,
+                                        isFullScreen: $isToolFullScreen,
+                                        currentProjectFolder: selectedProjectFolder,
+                                        openProject: { selection = $0 },
+                                        closePanel: closeToolPanel
+                                    )
+                                    .dynamicTypeSize(selectedDynamicTypeSize)
+                                    .environment(\.workspaceFontScale, selectedFontScale)
+                                    .frame(width: toolPanelUsesFullWidth ? geometry.size.width : toolPanelWidth(geometry.size.width))
+                                    .frame(maxHeight: .infinity)
+                                    .shadow(color: .black.opacity(isToolFullScreen ? 0 : 0.12), radius: 12, x: -3, y: 0)
+                                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        .animation(.snappy(duration: 0.22), value: isToolPanelOpen)
+                        .animation(.snappy(duration: 0.24), value: isToolFullScreen)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.22), value: isSidebarVisible)
             }
-            .animation(.easeInOut(duration: 0.22), value: isSidebarVisible)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(workspaceBackgroundColor)
+        .preferredColorScheme(selectedColorScheme)
+        .environment(\.dynamicTypeSize, selectedDynamicTypeSize)
+        .environment(\.workspaceFontScale, selectedFontScale)
+        .font(.system(size: 13 * selectedFontScale))
         .sheet(isPresented: $showingRepositorySearch) {
             RepositorySearchSheet(store: store) { repository in
                 selection = store.isCloned(repository) ? .project(repository.id, .overview) : .allProjects
@@ -69,9 +187,37 @@ struct WorkspaceView: View {
         .task {
             await store.restoreSession()
         }
+        .onChange(of: selection) { _, destination in
+            store.recordRecentProject(for: destination)
+        }
         .onChange(of: store.authorization?.verificationURL) { _, url in
             if let url { NSWorkspace.shared.open(url) }
         }
+    }
+
+    private var selectedProjectFolder: URL? {
+        switch selection {
+        case let .localProject(id, _): store.localProjects.first(where: { $0.id == id })?.url
+        case let .project(id, _): store.clonedRepositoryPaths[id].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        default: nil
+        }
+    }
+
+    private func toolPanelWidth(_ availableWidth: CGFloat) -> CGFloat {
+        min(max(CGFloat(storedToolPanelWidth), 240), max(240, availableWidth - 328))
+    }
+
+    private func openToolPanel() {
+        isToolPanelOpen = true
+        isToolLauncherVisible = true
+    }
+
+    private func closeToolPanel() {
+        isToolPanelOpen = false
+        isToolFullScreen = false
+        isToolLauncherVisible = true
+        selectedToolTabID = nil
+        toolTabs.removeAll()
     }
 
     @ViewBuilder
@@ -87,13 +233,13 @@ struct WorkspaceView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("dev")
-                    .font(.system(size: 16, weight: .semibold))
+                    .workspaceFont(size: 16, weight: .semibold)
                 Spacer()
                 Button {
                     showRepositorySearch()
                 } label: {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 16))
+                        .workspaceFont(size: 16)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
@@ -108,38 +254,82 @@ struct WorkspaceView: View {
             List(selection: $selection) {
                 Section {
                     Label("All Projects", systemImage: "square.grid.2x2")
-                        .font(.system(size: 15, weight: .medium))
+                        .workspaceFont(size: 15, weight: .medium)
                         .tag(Destination.allProjects)
                         .accessibilityIdentifier("nav-all-projects")
                     Label("Activity", systemImage: "waveform.path")
-                        .font(.system(size: 15, weight: .medium))
+                        .workspaceFont(size: 15, weight: .medium)
                         .tag(Destination.activity)
                         .accessibilityIdentifier("nav-activity")
                 } header: {
                     Text("Workspace")
-                        .font(.system(size: 13, weight: .semibold))
+                        .workspaceFont(size: 13, weight: .semibold)
                 }
 
                 Section {
-                    ForEach(store.clonedRepositories) { repository in
-                        HStack(spacing: 8) {
-                            Label(repository.name, systemImage: "shippingbox")
-                                .font(.system(size: 15, weight: .medium))
-                            Spacer(minLength: 4)
-                            if let count = store.openPullRequestCounts[repository.id], count > 0 {
-                                pullRequestCountBadge(count)
-                                    .accessibilityIdentifier("sidebar-pr-count-\(repository.id)")
+                    ForEach(store.orderedSidebarProjects(store.clonedRepositories, key: { (repository: GitHubRepository) in "github:\(repository.id)" })) { repository in
+                        let key = "github:\(repository.id)"
+                        ProjectSidebarRow(
+                            name: repository.name,
+                            displayName: store.sidebarProjectNames[key] ?? repository.name,
+                            key: key,
+                            url: store.clonedRepositoryPaths[repository.id].map { URL(fileURLWithPath: $0) },
+                            isPinned: store.pinnedSidebarProjects.contains(key),
+                            color: store.sidebarProjectColors[key] ?? "default",
+                            icon: store.sidebarProjectIcons[key] ?? "shippingbox",
+                            badge: store.openPullRequestCounts[repository.id],
+                            togglePin: { store.toggleSidebarPin(key) },
+                            moveBefore: { store.moveSidebarProject($0, before: key) },
+                            updateAppearance: { store.setSidebarProjectAppearance(key, name: $0, color: $1, icon: $2) },
+                            remove: {
+                                store.removeRepositoryFromSidebar(repository)
+                                if isProjectSelected(repository.id) { selection = .allProjects }
                             }
-                        }
+                        )
                         .tag(Destination.project(repository.id, .overview))
                     }
                     if store.clonedRepositories.isEmpty {
                         Text("Clone a repository from All Projects")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .workspaceFont(.caption).foregroundStyle(.secondary)
                     }
                 } header: {
                     Text("Projects")
-                        .font(.system(size: 13, weight: .semibold))
+                        .workspaceFont(size: 13, weight: .semibold)
+                }
+
+                Section {
+                    ForEach(store.orderedSidebarProjects(store.localProjects, key: { (project: LocalProject) in "local:\(project.id.uuidString)" })) { project in
+                        let key = "local:\(project.id.uuidString)"
+                        ProjectSidebarRow(
+                            name: project.name,
+                            displayName: store.sidebarProjectNames[key] ?? project.name,
+                            key: key,
+                            url: project.url,
+                            isPinned: store.pinnedSidebarProjects.contains(key),
+                            color: store.sidebarProjectColors[key] ?? "default",
+                            icon: store.sidebarProjectIcons[key] ?? "folder",
+                            togglePin: { store.toggleSidebarPin(key) },
+                            moveBefore: { store.moveSidebarProject($0, before: key) },
+                            updateAppearance: { store.setSidebarProjectAppearance(key, name: $0, color: $1, icon: $2) },
+                            remove: {
+                                store.removeLocalProject(project)
+                                if isLocalProjectSelected(project.id) { selection = .allProjects }
+                            }
+                        )
+                        .tag(Destination.localProject(project.id, .overview))
+                    }
+                    if let error = store.localProjectError {
+                        Text(error).workspaceFont(.caption).foregroundStyle(.orange)
+                    }
+                    Button(action: chooseLocalProject) {
+                        Label("Add Folder…", systemImage: "plus")
+                            .workspaceFont(size: 14, weight: .medium)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("add-local-project")
+                } header: {
+                    Text("Local Projects")
+                        .workspaceFont(size: 13, weight: .semibold)
                 }
             }
             .listStyle(.sidebar)
@@ -149,13 +339,13 @@ struct WorkspaceView: View {
             VStack(spacing: 4) {
                 HStack(spacing: 10) {
                     Image(systemName: "person.crop.circle.fill")
-                        .font(.title3)
+                        .workspaceFont(.title3)
                         .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("GitHub account")
-                            .font(.system(size: 15, weight: .semibold))
+                            .workspaceFont(size: 15, weight: .semibold)
                         Text(store.signedInUsername.map { "@\($0)" } ?? store.sidebarAccountStatus)
-                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                            .workspaceFont(size: 13).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
                 }
@@ -166,7 +356,7 @@ struct WorkspaceView: View {
                     selection = .settings
                 } label: {
                     Label("Settings", systemImage: "gearshape")
-                        .font(.system(size: 15, weight: .medium))
+                        .workspaceFont(size: 15, weight: .medium)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
@@ -183,7 +373,7 @@ struct WorkspaceView: View {
         VStack(spacing: 0) {
             Button(action: showRepositorySearch) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 16))
+                    .workspaceFont(size: 16)
                     .frame(width: 36, height: 36)
                     .contentShape(RoundedRectangle(cornerRadius: 9))
             }
@@ -201,9 +391,18 @@ struct WorkspaceView: View {
                     compactButton("Activity", icon: "waveform.path", selected: selection == .activity, id: "compact-nav-activity") {
                         selection = .activity
                     }
-                    ForEach(store.clonedRepositories) { repository in
-                        compactButton(repository.name, icon: "shippingbox", selected: isProjectSelected(repository.id), id: "compact-project-\(repository.id)", badge: store.openPullRequestCounts[repository.id]) {
+                    compactSidebarSeparator
+                    ForEach(store.orderedSidebarProjects(store.clonedRepositories, key: { (repository: GitHubRepository) in "github:\(repository.id)" })) { repository in
+                        let key = "github:\(repository.id)"
+                        compactButton(store.sidebarProjectNames[key] ?? repository.name, icon: store.sidebarProjectIcons[key] ?? "shippingbox", selected: isProjectSelected(repository.id), id: "compact-project-\(repository.id)", badge: store.openPullRequestCounts[repository.id], tint: ProjectSidebarTint(rawValue: store.sidebarProjectColors[key] ?? "default")?.color ?? .secondary) {
                             selection = .project(repository.id, .overview)
+                        }
+                    }
+                    compactSidebarSeparator
+                    ForEach(store.orderedSidebarProjects(store.localProjects, key: { (project: LocalProject) in "local:\(project.id.uuidString)" })) { project in
+                        let key = "local:\(project.id.uuidString)"
+                        compactButton(store.sidebarProjectNames[key] ?? project.name, icon: store.sidebarProjectIcons[key] ?? "folder", selected: isLocalProjectSelected(project.id), id: "compact-local-project-\(project.id)", tint: ProjectSidebarTint(rawValue: store.sidebarProjectColors[key] ?? "default")?.color ?? .secondary) {
+                            selection = .localProject(project.id, .overview)
                         }
                     }
                 }
@@ -225,12 +424,20 @@ struct WorkspaceView: View {
         }
     }
 
-    private func compactButton(_ title: String, icon: String, selected: Bool, id: String, badge: Int? = nil, action: @escaping () -> Void) -> some View {
+    private var compactSidebarSeparator: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.14))
+            .frame(width: 24, height: 1)
+            .padding(.vertical, 4)
+            .accessibilityHidden(true)
+    }
+
+    private func compactButton(_ title: String, icon: String, selected: Bool, id: String, badge: Int? = nil, tint: Color = .secondary, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+                    .workspaceFont(size: 16, weight: .medium)
+                    .foregroundStyle(tint)
                     .frame(width: 36, height: 36)
                     .background {
                         if selected {
@@ -253,7 +460,7 @@ struct WorkspaceView: View {
 
     private func pullRequestCountBadge(_ count: Int) -> some View {
         Text(count > 99 ? "99+" : count.formatted())
-            .font(.system(size: 10, weight: .bold))
+            .workspaceFont(size: 10, weight: .bold)
             .foregroundStyle(.white)
             .padding(.horizontal, 5)
             .frame(minWidth: 18, minHeight: 18)
@@ -265,8 +472,24 @@ struct WorkspaceView: View {
         showingRepositorySearch = true
     }
 
+    private func chooseLocalProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add Folder"
+        panel.message = "Choose a local project folder. Its files stay on this Mac."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        store.addLocalProject(at: url)
+    }
+
     private func isProjectSelected(_ id: Int64) -> Bool {
         guard case let .project(selectedID, _) = selection else { return false }
+        return selectedID == id
+    }
+
+    private func isLocalProjectSelected(_ id: UUID) -> Bool {
+        guard case let .localProject(selectedID, _) = selection else { return false }
         return selectedID == id
     }
 
@@ -276,6 +499,7 @@ struct WorkspaceView: View {
         case .activity: "Activity"
         case .settings: "Settings"
         case let .project(id, _): store.repository(id: id)?.fullName ?? "Project"
+        case let .localProject(id, page): "\(store.localProjects.first(where: { $0.id == id })?.name ?? "Local Project") · \(page.rawValue)"
         }
     }
 
@@ -283,8 +507,8 @@ struct WorkspaceView: View {
     private var destinationView: some View {
         switch selection {
         case .allProjects, nil:
-            AllProjectsView(store: store) { repository in
-                if store.isCloned(repository) { selection = .project(repository.id, .overview) }
+            AllProjectsView(store: store) { destination in
+                selection = destination
             }
         case .activity:
             ActivityView(store: store)
@@ -300,7 +524,548 @@ struct WorkspaceView: View {
             } else {
                 ContentUnavailableView("Repository unavailable", systemImage: "shippingbox")
             }
+        case let .localProject(id, page):
+            if let project = store.localProjects.first(where: { $0.id == id }) {
+                LocalProjectWorkspaceView(project: project, page: page) { nextPage in
+                    selection = .localProject(id, nextPage)
+                }
+            } else {
+                ContentUnavailableView("Folder unavailable", systemImage: "folder", description: Text("Add this folder again to restore access."))
+            }
         }
+    }
+}
+
+private struct ToolPanelResizeHandle: View {
+    @Binding var width: Double
+    let maximumWidth: CGFloat
+    @State private var dragStartWidth: Double?
+
+    var body: some View {
+        Rectangle()
+            .fill(.clear)
+            .frame(width: 8)
+            .frame(maxHeight: .infinity)
+            .overlay {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.12))
+                    .frame(width: 1)
+            }
+            .overlay {
+                Capsule()
+                    .fill(Color.primary.opacity(0.3))
+                    .frame(width: 3, height: 36)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 2)
+                    .onChanged { value in
+                        if dragStartWidth == nil { dragStartWidth = width }
+                        let start = dragStartWidth ?? width
+                        width = min(max(start - value.translation.width, 240), max(240, Double(maximumWidth)))
+                    }
+                    .onEnded { _ in dragStartWidth = nil }
+            )
+            .accessibilityElement()
+            .accessibilityLabel("Resize tools panel")
+            .accessibilityValue("\(Int(width)) points")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: width = min(width + 40, Double(maximumWidth))
+                case .decrement: width = max(width - 40, 240)
+                @unknown default: break
+                }
+            }
+    }
+}
+
+private struct LocalProjectWorkspaceView: View {
+    let project: LocalProject
+    let page: LocalProjectPage
+    let navigate: (LocalProjectPage) -> Void
+    @State private var folderComponents: [String] = []
+    @State private var selectedFile: LocalProjectFilePreview?
+    @State private var filePreviewError: String?
+
+    private var rootURL: URL? { project.url }
+    private var currentURL: URL? { folderComponents.reduce(rootURL) { $0?.appending(path: $1, directoryHint: .isDirectory) } }
+    private var entries: [(url: URL, isDirectory: Bool, isSymbolicLink: Bool)]? {
+        guard let rootURL, let url = currentURL else { return nil }
+        let startedAccess = rootURL.startAccessingSecurityScopedResource()
+        defer { if startedAccess { rootURL.stopAccessingSecurityScopedResource() } }
+        guard let items = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { return nil }
+        return items
+            .compactMap { item in
+                guard let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return nil }
+                return (item, values.isDirectory ?? false, values.isSymbolicLink ?? false)
+            }
+            .sorted { lhs, rhs in
+                if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+                return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent) == .orderedAscending
+            }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                HStack(spacing: 12) {
+                    Image(systemName: "folder.fill")
+                        .workspaceFont(size: 22)
+                        .foregroundStyle(.teal)
+                        .frame(width: 48, height: 48)
+                        .workspaceSurfaceBackground(.teal.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("LOCAL FOLDER").workspaceFont(.caption, weight: .bold).tracking(1.1).foregroundStyle(.teal)
+                        Text(project.name).workspaceFont(.largeTitle, weight: .bold)
+                    }
+                    Spacer()
+                }
+                HStack(spacing: 8) {
+                    ForEach(LocalProjectPage.allCases) { destination in
+                        LocalProjectNavigationButton(page: destination, selected: page == destination) {
+                            navigate(destination)
+                        }
+                    }
+                }
+
+                if page == .overview {
+                    VStack {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("On this Mac", systemImage: "desktopcomputer").workspaceFont(.title2, weight: .bold)
+                            if let rootURL {
+                                Text(rootURL.path).workspaceFont(.callout, design: .monospaced).textSelection(.enabled).foregroundStyle(.secondary)
+                                Label("\((entries?.count ?? 0).formatted()) items in this folder", systemImage: "folder")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ContentUnavailableView("Folder access expired", systemImage: "folder.badge.questionmark", description: Text("Remove this entry and add the folder again."))
+                            }
+                            Text("Open text files read-only. Markdown files include Preview and Markdown views. The Terminal tool starts in this folder.")
+                                .workspaceFont(.callout).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
+                        .padding(8)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity)
+                    .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.25)))
+                } else {
+                    HStack(spacing: 7) {
+                        Button(project.name) { folderComponents = [] }.buttonStyle(.plain)
+                        ForEach(Array(folderComponents.enumerated()), id: \.offset) { index, component in
+                            Image(systemName: "chevron.right").workspaceFont(.caption2).foregroundStyle(.tertiary)
+                            Button(component) { folderComponents = Array(folderComponents.prefix(index + 1)) }.buttonStyle(.plain)
+                        }
+                    }
+                    .workspaceFont(.callout)
+                    VStack {
+                        if currentURL == nil || entries == nil || entries?.isEmpty == true {
+                            ContentUnavailableView(currentURL == nil || entries == nil ? "Folder unavailable" : "Folder is empty", systemImage: "folder", description: Text("Hidden files are not shown."))
+                                .frame(maxWidth: .infinity, minHeight: 180)
+                        } else {
+                            LazyVStack(spacing: 0) {
+                                ForEach(entries ?? [], id: \.url) { entry in
+                                    if entry.isDirectory && !entry.isSymbolicLink {
+                                        Button {
+                                            folderComponents.append(entry.url.lastPathComponent)
+                                        } label: {
+                                            localFileRow(entry)
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else if !entry.isDirectory && !entry.isSymbolicLink {
+                                        Button {
+                                            openFilePreview(entry.url)
+                                        } label: {
+                                            localFileRow(entry)
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        localFileRow(entry)
+                                    }
+                                    if entry.url != entries?.last?.url { Divider() }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity)
+                    .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.25)))
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: 1100, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .sheet(item: $selectedFile) { preview in
+            LocalProjectFilePreviewSheet(preview: preview)
+        }
+        .alert("File preview unavailable", isPresented: Binding(
+            get: { filePreviewError != nil },
+            set: { if !$0 { filePreviewError = nil } }
+        )) {
+            Button("OK", role: .cancel) { filePreviewError = nil }
+        } message: {
+            Text(filePreviewError ?? "")
+        }
+    }
+
+    private func localFileRow(_ entry: (url: URL, isDirectory: Bool, isSymbolicLink: Bool)) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: entry.isDirectory ? "folder.fill" : (entry.isSymbolicLink ? "link" : "doc.text"))
+                .foregroundStyle(entry.isDirectory ? .teal : .secondary)
+                .frame(width: 20)
+            Text(entry.url.lastPathComponent).lineLimit(1)
+            Spacer()
+            if !entry.isSymbolicLink {
+                Image(systemName: "chevron.right").workspaceFont(.caption).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+    }
+
+    private func openFilePreview(_ url: URL) {
+        guard let rootURL else { return }
+        do {
+            let file = try LocalProjectTextFile.read(url, inside: rootURL)
+            selectedFile = LocalProjectFilePreview(name: url.lastPathComponent, file: file)
+        } catch {
+            filePreviewError = error.localizedDescription
+        }
+    }
+}
+
+private struct LocalProjectFilePreview: Identifiable {
+    let id = UUID()
+    let name: String
+    let file: LocalProjectTextFile
+}
+
+private struct LocalProjectFilePreviewSheet: View {
+    let preview: LocalProjectFilePreview
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if preview.file.isMarkdown {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Label("Read-only Markdown preview", systemImage: "doc.richtext")
+                                .workspaceFont(.caption, weight: .medium)
+                                .foregroundStyle(.secondary)
+                            MarkdownMessageView(markdown: preview.file.contents, id: "local-file-\(preview.id)")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(24)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Label(preview.file.language, systemImage: "chevron.left.forwardslash.chevron.right")
+                                .workspaceFont(.caption, weight: .medium)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text("Read only").workspaceFont(.caption).foregroundStyle(.tertiary)
+                        }
+                        ScrollView([.horizontal, .vertical]) {
+                            Text(preview.file.contents)
+                                .workspaceFont(.body, design: .monospaced)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(16)
+                        }
+                        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .padding(20)
+                }
+            }
+            .frame(minWidth: 680, minHeight: 480)
+            .navigationTitle(preview.name)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct LocalProjectNavigationButton: View {
+    let page: LocalProjectPage
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: page.symbol)
+                Text(page.rawValue)
+            }
+            .frame(minHeight: 36)
+            .padding(.horizontal, 12)
+        }
+        .buttonStyle(.bordered)
+        .tint(selected ? .teal : .secondary)
+    }
+}
+
+private struct ProjectSidebarRow: View {
+    let name: String
+    let displayName: String
+    let key: String
+    let url: URL?
+    let isPinned: Bool
+    let color: String
+    let icon: String
+    var badge: Int?
+    let togglePin: () -> Void
+    let moveBefore: (String) -> Void
+    let updateAppearance: (String, String, String) -> Void
+    let remove: () -> Void
+    @State private var isHovered = false
+    @State private var showingEdit = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label(displayName, systemImage: icon)
+                .workspaceFont(size: 15, weight: .medium)
+                .lineLimit(1)
+                .foregroundStyle(ProjectSidebarTint(rawValue: color)?.color ?? .primary)
+            Spacer(minLength: 4)
+            if let badge, badge > 0 {
+                Text(badge > 99 ? "99+" : "\(badge)")
+                    .workspaceFont(size: 10, weight: .bold)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor, in: Capsule())
+                    .accessibilityIdentifier("sidebar-pr-count-\(key.dropFirst("github:".count))")
+            }
+            if isHovered || isPinned {
+                Button {
+                    showingEdit = true
+                } label: {
+                    Image(systemName: "pencil")
+                        .workspaceFont(size: 12, weight: .medium)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Edit sidebar name, color, and icon")
+                .accessibilityLabel("Edit \(displayName)")
+
+                Button(action: togglePin) {
+                    Image(systemName: isPinned ? "pin.fill" : "pin")
+                        .workspaceFont(size: 12, weight: .medium)
+                        .foregroundStyle(isPinned ? Color.accentColor : Color.secondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(isPinned ? "Unpin project" : "Pin project")
+                .accessibilityLabel(isPinned ? "Unpin \(name)" : "Pin \(name)")
+
+                Menu {
+                    ProjectSidebarActions(name: name, url: url, remove: remove)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .workspaceFont(size: 12, weight: .medium)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .help("Project settings")
+                .accessibilityLabel("\(name) settings")
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .draggable(key)
+        .dropDestination(for: String.self) { items, _ in
+            guard let source = items.first, source.split(separator: ":").first == key.split(separator: ":").first else { return false }
+            moveBefore(source)
+            return true
+        }
+        .contextMenu {
+            Button("Edit Name & Color…", systemImage: "pencil") { showingEdit = true }
+            ProjectSidebarActions(name: name, url: url, remove: remove)
+        }
+        .sheet(isPresented: $showingEdit) {
+            ProjectSidebarEditSheet(name: displayName, color: color, icon: icon) { editedName, editedColor, editedIcon in
+                updateAppearance(editedName, editedColor, editedIcon)
+                showingEdit = false
+            }
+            .frame(width: 420, height: 480)
+        }
+    }
+}
+
+private enum ProjectSidebarTint: String, CaseIterable, Identifiable {
+    case `default`, red, orange, yellow, green, mint, teal, cyan, blue, indigo, purple, pink
+
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    var color: Color {
+        switch self {
+        case .default: .primary
+        case .red: .red
+        case .orange: .orange
+        case .yellow: .yellow
+        case .green: .green
+        case .mint: .mint
+        case .teal: .teal
+        case .cyan: .cyan
+        case .blue: .blue
+        case .indigo: .indigo
+        case .purple: .purple
+        case .pink: .pink
+        }
+    }
+}
+
+private struct ProjectSidebarEditSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var color: String
+    @State private var icon: String
+    let save: (String, String, String) -> Void
+
+    init(name: String, color: String, icon: String, save: @escaping (String, String, String) -> Void) {
+        _name = State(initialValue: name)
+        _color = State(initialValue: ProjectSidebarTint(rawValue: color)?.rawValue ?? "default")
+        _icon = State(initialValue: ProjectSidebarIcon.symbols.contains(icon) ? icon : "folder")
+        self.save = save
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Edit Sidebar Project").workspaceFont(.title2, weight: .bold)
+            TextField("Project name", text: $name)
+                .textFieldStyle(.roundedBorder)
+            Text("Sidebar color").workspaceFont(.headline)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
+                ForEach(ProjectSidebarTint.allCases) { tint in
+                    Button { color = tint.rawValue } label: {
+                        Circle()
+                            .fill(tint.color)
+                            .frame(width: 24, height: 24)
+                            .padding(4)
+                            .overlay(Circle().strokeBorder(color == tint.rawValue ? Color.primary : .clear, lineWidth: 2))
+                    }
+                    .buttonStyle(.plain)
+                    .help(tint.title)
+                    .accessibilityLabel(tint.title)
+                }
+            }
+            Text("Sidebar icon").workspaceFont(.headline)
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
+                    ForEach(ProjectSidebarIcon.symbols, id: \.self) { symbol in
+                        Button { icon = symbol } label: {
+                            Image(systemName: symbol)
+                                .workspaceFont(size: 16)
+                                .foregroundStyle(ProjectSidebarTint(rawValue: color)?.color ?? .primary)
+                                .frame(width: 32, height: 30)
+                                .background(icon == symbol ? Color.primary.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                        .help(symbol)
+                        .accessibilityLabel(symbol)
+                        .accessibilityAddTraits(icon == symbol ? .isSelected : [])
+                    }
+                }
+            }
+            .frame(height: 150)
+            Spacer(minLength: 0)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") { save(name, color, icon) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(24)
+    }
+}
+
+private enum ProjectSidebarIcon {
+    static let symbols = [
+        "shippingbox", "shippingbox.fill", "folder", "folder.fill", "folder.badge.gearshape", "doc.text", "doc.richtext", "tray.full",
+        "curlybraces", "chevron.left.forwardslash.chevron.right", "terminal", "apple.terminal", "hammer", "wrench.and.screwdriver", "gearshape", "gearshape.2",
+        "swift", "ladybug", "testtube.2", "checkmark.seal", "cube", "shippingbox.circle", "square.stack.3d.up", "point.3.connected.trianglepath.dotted",
+        "server.rack", "externaldrive", "internaldrive", "desktopcomputer", "laptopcomputer", "iphone", "ipad", "display",
+        "globe", "network", "cloud", "lock", "key.fill", "shield", "bolt", "flame",
+        "leaf", "heart", "star", "bookmark", "book", "checklist", "list.bullet.rectangle", "chart.bar",
+        "chart.xyaxis.line", "waveform.path", "paintpalette", "gamecontroller", "music.note", "camera", "photo", "play.rectangle",
+        "person.2", "building.2", "creditcard", "cart", "bag", "map", "location", "airplane",
+        "car", "sparkles", "puzzlepiece.extension", "atom", "brain", "graduationcap", "building.columns", "calendar"
+    ]
+}
+
+private struct ProjectSidebarActions: View {
+    let name: String
+    let url: URL?
+    let remove: () -> Void
+
+    private var codingApplications: [(name: String, url: URL)] {
+        guard let url else { return [] }
+        let recognized = ["code", "xcode", "cursor", "zed", "windsurf", "fleet", "intellij", "android studio", "kiro", "antigravity"]
+        let applications = NSWorkspace.shared.urlsForApplications(toOpen: url)
+            + [NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.dt.Xcode")].compactMap { $0 }
+        return Set(applications).compactMap { appURL in
+            guard let bundle = Bundle(url: appURL), let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String,
+                  recognized.contains(where: { name.localizedCaseInsensitiveContains($0) }) else { return nil }
+            return (name, appURL)
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    var body: some View {
+        if let url {
+            Menu("Open With") {
+                if codingApplications.isEmpty {
+                    Text("No coding IDE available").disabled(true)
+                } else {
+                    ForEach(codingApplications, id: \.url) { application in
+                        Button(application.name) { open(url, with: application.url) }
+                    }
+                }
+            }
+            Button("Show in Finder") { reveal(url) }
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.path, forType: .string)
+            } label: {
+                Label {
+                    Text(url.path).lineLimit(2)
+                } icon: {
+                    Image(systemName: "doc.on.doc")
+                }
+            }
+            Divider()
+        } else {
+            Text("Project path unavailable").disabled(true)
+        }
+        Button("Remove from Sidebar", role: .destructive, action: remove)
+    }
+
+    private func open(_ url: URL, with application: URL) {
+        let startedAccess = url.startAccessingSecurityScopedResource()
+        defer { if startedAccess { url.stopAccessingSecurityScopedResource() } }
+        NSWorkspace.shared.open([url], withApplicationAt: application, configuration: NSWorkspace.OpenConfiguration()) { _, _ in }
+    }
+
+    private func reveal(_ url: URL) {
+        let startedAccess = url.startAccessingSecurityScopedResource()
+        defer { if startedAccess { url.stopAccessingSecurityScopedResource() } }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 }
 
@@ -322,15 +1087,15 @@ private struct ActivityView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(store.contributionActivity.map { "\($0.calendar.totalContributions.formatted()) contributions in \(selectedYear == years[0] ? "the last year" : String(selectedYear))" } ?? "Contribution activity")
-                            .font(.title2.weight(.semibold))
+                            .workspaceFont(.title2, weight: .semibold)
                         if store.contributionActivityLoading {
                             Label("Loading GitHub activity…", systemImage: "arrow.clockwise")
-                                .font(.callout).foregroundStyle(.secondary)
+                                .workspaceFont(.callout).foregroundStyle(.secondary)
                         } else if let error = store.contributionActivityError {
-                            Text(error).font(.callout).foregroundStyle(.secondary)
+                            Text(error).workspaceFont(.callout).foregroundStyle(.secondary)
                         } else if let activity = store.contributionActivity, activity.restrictedContributionsCount > 0 {
                             Text("Includes \(activity.restrictedContributionsCount.formatted()) private contributions")
-                                .font(.callout).foregroundStyle(.secondary)
+                                .workspaceFont(.callout).foregroundStyle(.secondary)
                         }
                     }
                     Spacer()
@@ -343,7 +1108,7 @@ private struct ActivityView: View {
                         Label(String(selectedYear), systemImage: "chevron.down")
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
-                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 9))
+                            .workspaceSurfaceBackground(Color.accentColor, in: RoundedRectangle(cornerRadius: 9))
                             .foregroundStyle(.white)
                     }
                     .menuStyle(.borderlessButton)
@@ -386,7 +1151,7 @@ private struct ActivityView: View {
                         }
                     }
                 }
-                .background(Color(nsColor: .windowBackgroundColor))
+                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.25)))
             }
@@ -395,7 +1160,6 @@ private struct ActivityView: View {
             .padding(.top, 28)
             .padding(.bottom, 36)
         }
-        .background(Color(nsColor: .underPageBackgroundColor))
         .accessibilityIdentifier("activity-view")
         .task(id: selectedYear) { await store.loadContributionActivity(year: selectedYear) }
     }
@@ -405,7 +1169,7 @@ private struct ActivityView: View {
             HStack(spacing: 0) {
                 ForEach(calendar.months) { month in
                     Text(String(month.name.prefix(3)))
-                        .font(.callout.weight(.medium))
+                        .workspaceFont(.callout, weight: .medium)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -415,7 +1179,7 @@ private struct ActivityView: View {
                     VStack(spacing: 4) {
                         ForEach(Array(["", "Mon", "", "Wed", "", "Fri", ""].enumerated()), id: \.offset) { _, day in
                             Text(day)
-                                .font(.caption)
+                                .workspaceFont(.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 36, height: cell, alignment: .leading)
                         }
@@ -454,7 +1218,7 @@ private struct ActivityView: View {
                 Text("More")
                     .foregroundStyle(.secondary)
             }
-            .font(.callout)
+            .workspaceFont(.callout)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Contribution calendar for \(selectedYear), \(calendar.totalContributions) contributions.")
@@ -464,13 +1228,13 @@ private struct ActivityView: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 24) {
                 Text("Activity overview")
-                    .font(.title3.weight(.semibold))
+                    .workspaceFont(.title3, weight: .semibold)
                 if activity.repositoryCount == 0 {
                     Label("No commit repositories reported by GitHub", systemImage: "shippingbox")
                         .foregroundStyle(.secondary)
                 } else {
                     Text("Committed to \(activity.repositoryCount) repositories")
-                        .font(.body)
+                        .workspaceFont(.body)
                     ForEach(Array(activity.repositories.prefix(3))) { repository in
                         if let url = safeRepositoryURL(repository) {
                             Link(repository.nameWithOwner, destination: url)
@@ -482,7 +1246,7 @@ private struct ActivityView: View {
                 }
                 if activity.restrictedContributionsCount > 0 {
                     Text("Private contribution details are hidden by GitHub.")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .workspaceFont(.callout).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 420, alignment: .topLeading)
@@ -545,7 +1309,7 @@ private struct ActivityView: View {
                 .fontWeight(.medium)
             Text(title)
         }
-        .font(.callout)
+        .workspaceFont(.callout)
         .foregroundStyle(.secondary)
     }
 
@@ -620,9 +1384,9 @@ private struct RepositorySearchSheet: View {
                                     Image(systemName: "shippingbox")
                                         .foregroundStyle(.secondary)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(repository.fullName).font(.callout.weight(.medium))
+                                        Text(repository.fullName).workspaceFont(.callout, weight: .medium)
                                         Text(repository.summary ?? "No description")
-                                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                            .workspaceFont(.caption).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                     Spacer()
                                 }
@@ -639,111 +1403,21 @@ private struct RepositorySearchSheet: View {
         }
         .padding(18)
         .frame(width: 540, height: 420)
-        .background(Color(nsColor: .windowBackgroundColor))
+                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor))
         .onAppear { queryIsFocused = true }
     }
 }
 
 private struct AllProjectsView: View {
     @Bindable var store: WorkspaceStore
-    let openRepository: (GitHubRepository) -> Void
+    let openProject: (Destination) -> Void
 
     var body: some View {
-        GeometryReader { geometry in
-            Group {
-                if store.repositories.isEmpty {
-                    ConnectionView(store: store)
-                        .frame(maxWidth: 520)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 24) {
-                            HStack(alignment: .top) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("Your repositories").font(.largeTitle.bold())
-                                    Text("Repositories accessible to your GitHub account and installed apps.")
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button {
-                                    Task { await store.refresh() }
-                                } label: {
-                                    Image(systemName: "arrow.clockwise")
-                                        .frame(width: 28, height: 28)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Refresh repositories")
-                                .disabled(store.connectionState == .loading)
-                                .help("Refresh repositories from GitHub")
-                                .accessibilityIdentifier("all-projects-refresh")
-                            }
-                            .padding(.top, 28)
-
-                            Label("\(store.filteredRepositories.count) repositories · \(store.clonedRepositories.count) cloned", systemImage: "shippingbox")
-                                .foregroundStyle(.secondary)
-                            if let cloneError = store.cloneError {
-                                Label(cloneError, systemImage: "exclamationmark.triangle.fill")
-                                    .font(.callout).foregroundStyle(.orange)
-                            }
-                            if case let .stale(message) = store.connectionState {
-                                Label(message, systemImage: "exclamationmark.triangle")
-                                    .font(.callout).foregroundStyle(.orange)
-                            }
-
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Repositories").font(.title2.bold())
-                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], alignment: .leading, spacing: 16) {
-                                    ForEach(store.filteredRepositories) { repository in
-                                        RepositoryRow(
-                                            repository: repository,
-                                            isCloned: store.isCloned(repository),
-                                            isCloning: store.cloningRepositoryIDs.contains(repository.id),
-                                            open: { openRepository(repository) },
-                                            clone: { chooseCloneDestination(for: repository) },
-                                            addFolder: { chooseExistingFolder(for: repository) }
-                                        )
-                                    }
-                                }
-                                .frame(maxWidth: 1800, alignment: .leading)
-                                if store.filteredRepositories.isEmpty {
-                                    ContentUnavailableView.search(text: store.searchText)
-                                }
-                            }
-                            .padding(.bottom, 28)
-                        }
-                        .padding(.horizontal, 28)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-        }
-        .background(Color(nsColor: .underPageBackgroundColor))
-    }
-
-    private func chooseCloneDestination(for repository: GitHubRepository) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.prompt = "Clone Here"
-        panel.message = "Choose a parent folder for \(repository.name)."
-        guard panel.runModal() == .OK, let parent = panel.url else { return }
-        Task { await store.clone(repository, into: parent) }
-    }
-
-    private func chooseExistingFolder(for repository: GitHubRepository) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.prompt = "Add Folder"
-        panel.message = "Choose the existing clone of \(repository.fullName)."
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
-        Task { await store.addExistingClone(repository, at: folder) }
+        WelcomeOverviewView(store: store, openProject: openProject)
     }
 }
 
-private struct ConnectionView: View {
+struct ConnectionView: View {
     @Bindable var store: WorkspaceStore
     @State private var showingConfigurationHelp = false
 
@@ -760,7 +1434,7 @@ private struct ConnectionView: View {
             case .checking, .loading:
                 ProgressView("Checking GitHub connection…")
             case .needsConfiguration:
-                Text("Your GitHub workspace starts here").font(.title2.bold())
+                Text("Your GitHub workspace starts here").workspaceFont(.title2, weight: .bold)
                 Text("Sign in to see repositories you can access. dev can create, comment on, review, and merge pull requests.")
                     .foregroundStyle(.secondary)
                 Button {
@@ -777,12 +1451,12 @@ private struct ConnectionView: View {
                 .accessibilityIdentifier("github-sign-in")
                 if showingConfigurationHelp {
                     Text("Add your GitHub App client ID to Config/GitHub.xcconfig and enable Device Flow in the app settings, then rebuild.")
-                        .font(.callout)
+                        .workspaceFont(.callout)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("github-configuration-help")
                 }
             case .signedOut:
-                Text("Connect your GitHub account").font(.title2.bold())
+                Text("Connect your GitHub account").workspaceFont(.title2, weight: .bold)
                 Text("Sign in to load repositories you can access. dev can create, comment on, review, and merge pull requests.")
                     .foregroundStyle(.secondary)
                 Button { store.startSignIn() } label: {
@@ -798,9 +1472,9 @@ private struct ConnectionView: View {
                 Button("Cancel") { store.cancelSignIn() }
             case .awaitingAuthorization:
                 if let authorization = store.authorization {
-                    Text("Enter this code on GitHub").font(.headline)
+                    Text("Enter this code on GitHub").workspaceFont(.headline)
                     Text(authorization.userCode)
-                        .font(.system(size: 30, weight: .semibold, design: .monospaced))
+                        .workspaceFont(size: 30, weight: .semibold, design: .monospaced)
                         .textSelection(.enabled)
                         .accessibilityIdentifier("device-user-code")
                     Link("Open GitHub verification", destination: authorization.verificationURL)
@@ -809,7 +1483,7 @@ private struct ConnectionView: View {
                 }
             case let .failed(message):
                 Label("GitHub connection failed", systemImage: "exclamationmark.triangle")
-                    .font(.title2.bold())
+                    .workspaceFont(.title2, weight: .bold)
                 Text(message).foregroundStyle(.secondary)
                 Button("Try Again") { store.startSignIn() }
                     .buttonStyle(.borderedProminent)
@@ -839,19 +1513,19 @@ private struct RepositoryRow: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 10) {
                         Image(systemName: "shippingbox.fill")
-                            .font(.title3)
+                            .workspaceFont(.title3)
                             .foregroundStyle(.tint)
-                        Text(repository.fullName).font(.headline).lineLimit(1)
+                        Text(repository.fullName).workspaceFont(.headline).lineLimit(1)
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                     }
                     Text(repository.summary ?? "No description")
-                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
+                        .workspaceFont(.subheadline).foregroundStyle(.secondary).lineLimit(3)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(repository.visibilityDescription).font(.callout)
+                        Text(repository.visibilityDescription).workspaceFont(.callout)
                         if let branch = repository.defaultBranch {
                             Label(branch, systemImage: "arrow.branch")
-                                .font(.caption.monospaced()).foregroundStyle(.secondary)
+                                .workspaceFont(.caption, design: .monospaced).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -862,7 +1536,7 @@ private struct RepositoryRow: View {
             .disabled(!isCloned)
             if isCloned {
                 Label("Cloned", systemImage: "checkmark.circle.fill")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .workspaceFont(.caption).foregroundStyle(.secondary)
             } else {
                 HStack(spacing: 8) {
                     Button(action: clone) {
@@ -883,7 +1557,7 @@ private struct RepositoryRow: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.22)))
         .accessibilityIdentifier("repository-\(repository.id)")
     }
@@ -919,22 +1593,22 @@ private struct ProjectWorkspaceView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("breadcrumb-all-projects")
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right").workspaceFont(.caption2).foregroundStyle(.tertiary)
                 ForEach(repository.fullName.split(separator: "/").map(String.init), id: \.self) { component in
                     Text(component).foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right").workspaceFont(.caption2).foregroundStyle(.tertiary)
                 }
                 Text(page.rawValue).fontWeight(.medium)
                     .accessibilityIdentifier("breadcrumb-current-page")
                 Spacer()
             }
-            .font(.callout)
+            .workspaceFont(.callout)
 
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(repository.fullName).font(.largeTitle.bold())
+                    Text(repository.fullName).workspaceFont(.largeTitle, weight: .bold)
                     Text("GitHub · \(repository.visibilityDescription) · Local clone")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .workspaceFont(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if let url = repository.safeGitHubURL {
@@ -957,10 +1631,10 @@ private struct ProjectWorkspaceView: View {
                 }
             }
 
-            GroupBox {
+            VStack {
                 VStack(alignment: .leading, spacing: 12) {
                     Label(page.rawValue, systemImage: page.symbol)
-                        .font(.title2.bold())
+                        .workspaceFont(.title2, weight: .bold)
                         .frame(maxWidth: .infinity, alignment: page == .overview ? .center : .leading)
                     if store.projectHistoryLoading {
                         ProgressView("Loading GitHub history…")
@@ -978,7 +1652,11 @@ private struct ProjectWorkspaceView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 180, alignment: .leading)
                 .padding(8)
-                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.25)))
             }
         .padding(28)
         .frame(maxWidth: 1600, alignment: .topLeading)
@@ -1006,7 +1684,7 @@ private struct ProjectWorkspaceView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 Label("\(store.projectBranches.count) branches · \(store.projectCommits.count) recent commits · \(store.projectPullRequests.count) pull requests", systemImage: "globe")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .workspaceFont(.callout).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
@@ -1035,7 +1713,7 @@ private struct ProjectWorkspaceView: View {
                 }
                 if store.projectBranches.count < 2 {
                     Text("A pushed source branch and a different base branch are needed to create a pull request.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .workspaceFont(.caption).foregroundStyle(.secondary)
                 }
                 if store.projectPullRequests.isEmpty {
                     ContentUnavailableView("No pull requests returned", systemImage: "arrow.triangle.pull")
@@ -1062,7 +1740,7 @@ private struct ProjectWorkspaceView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 Label("Remote branch graph", systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.headline)
+                    .workspaceFont(.headline)
                 Spacer()
                 if let branch = store.selectedProjectBranch, branch != repository.defaultBranch {
                     Button("Create pull request", systemImage: "arrow.triangle.pull") {
@@ -1072,7 +1750,7 @@ private struct ProjectWorkspaceView: View {
                     .disabled(store.projectBranches.count < 2 || store.pullRequestActionInProgress)
                     .accessibilityIdentifier("create-pull-request-from-selected-branch")
                 }
-                Text("GitHub · branch heads").font(.caption).foregroundStyle(.secondary)
+                Text("GitHub · branch heads").workspaceFont(.caption).foregroundStyle(.secondary)
             }
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 12) {
@@ -1084,15 +1762,15 @@ private struct ProjectWorkspaceView: View {
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack(spacing: 7) {
                                     Circle().fill(selected ? Color.accentColor : Color.secondary.opacity(0.5)).frame(width: 10, height: 10)
-                                    Text(branch.name).font(.callout.weight(.semibold)).lineLimit(1)
+                                    Text(branch.name).workspaceFont(.callout, weight: .semibold).lineLimit(1)
                                 }
                                 Rectangle().fill(selected ? Color.accentColor.opacity(0.75) : Color.secondary.opacity(0.3)).frame(height: 2)
-                                Text(branch.commit.sha.prefix(7)).font(.caption.monospaced()).foregroundStyle(.secondary)
-                                if branch.name == repository.defaultBranch { Text("DEFAULT").font(.system(size: 9, weight: .bold)).foregroundStyle(.tint) }
+                                Text(branch.commit.sha.prefix(7)).workspaceFont(.caption, design: .monospaced).foregroundStyle(.secondary)
+                                if branch.name == repository.defaultBranch { Text("DEFAULT").workspaceFont(size: 9, weight: .bold).foregroundStyle(.tint) }
                             }
                             .frame(width: 150, alignment: .leading)
                             .padding(12)
-                            .background(selected ? Color.accentColor.opacity(0.11) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+                            .workspaceSurfaceBackground(selected ? Color.accentColor.opacity(0.11) : Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.08), lineWidth: 1))
                         }
                         .buttonStyle(.plain)
@@ -1104,8 +1782,8 @@ private struct ProjectWorkspaceView: View {
             if let branch = store.selectedProjectBranch {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.turn.down.right").foregroundStyle(.tint)
-                    Text("Commits on \(branch)").font(.subheadline.weight(.semibold))
-                    Text("· up to 100 recent").font(.caption).foregroundStyle(.secondary)
+                    Text("Commits on \(branch)").workspaceFont(.subheadline, weight: .semibold)
+                    Text("· up to 100 recent").workspaceFont(.caption).foregroundStyle(.secondary)
                 }
                 commitTimeline
             }
@@ -1128,7 +1806,7 @@ private struct ProjectWorkspaceView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(commit.commit.message.components(separatedBy: "\n").first ?? commit.sha).lineLimit(1)
                                 Text("\(commit.sha.prefix(7)) · \(displayGitHubTimestamp(commit.commit.author?.date))")
-                                    .font(.caption.monospaced()).foregroundStyle(.secondary)
+                                    .workspaceFont(.caption, design: .monospaced).foregroundStyle(.secondary)
                             }
                             Spacer()
                             if store.selectedProjectCommitSHA == commit.sha { Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint) }
@@ -1141,16 +1819,16 @@ private struct ProjectWorkspaceView: View {
                     if store.selectedProjectCommitSHA == commit.sha {
                         VStack(alignment: .leading, spacing: 10) {
                             Divider().padding(.vertical, 4)
-                            Text("Commit message").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Text("Commit message").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
                             MarkdownMessageView(markdown: commit.commit.message, id: "commit-\(commit.sha)")
                             HStack {
-                                Text(commit.sha.prefix(12)).font(.caption.monospaced()).foregroundStyle(.secondary)
+                                Text(commit.sha.prefix(12)).workspaceFont(.caption, design: .monospaced).foregroundStyle(.secondary)
                                 Spacer()
                                 if let url = safeGitHubURL(commit.htmlURL) { Link("Open commit on GitHub", destination: url).accessibilityIdentifier("open-selected-commit") }
                             }
                         }
                         .padding(14)
-                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+                        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                         .accessibilityIdentifier("selected-commit-details")
                     }
                 }
@@ -1206,7 +1884,7 @@ private struct CreatePullRequestView: View {
                 }
                 if let errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange).font(.callout)
+                        .foregroundStyle(.orange).workspaceFont(.callout)
                 }
             }
             .navigationTitle("Create pull request")
@@ -1255,12 +1933,12 @@ private struct PullRequestCard: View {
         Button(action: onOpen) {
             HStack(spacing: 14) {
                 Image(systemName: pullRequest.state == "open" ? "arrow.triangle.pull" : "checkmark.circle")
-                    .font(.title3).foregroundStyle(pullRequest.state == "open" ? Color.green : Color.secondary)
+                    .workspaceFont(.title3).foregroundStyle(pullRequest.state == "open" ? Color.green : Color.secondary)
                 VStack(alignment: .leading, spacing: 5) {
                     Text("\(pullRequest.title) #\(pullRequest.number)")
-                        .font(.headline).fixedSize(horizontal: false, vertical: true)
+                        .workspaceFont(.headline).fixedSize(horizontal: false, vertical: true)
                     Text("\(pullRequest.state.capitalized) · @\(pullRequest.user?.login ?? "unknown") · updated \(displayGitHubTimestamp(pullRequest.updatedAt))")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .workspaceFont(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if sourceURL != nil {
@@ -1268,11 +1946,11 @@ private struct PullRequestCard: View {
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
                 }
-                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right").workspaceFont(.caption, weight: .semibold).foregroundStyle(.tertiary)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08)))
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
@@ -1336,9 +2014,9 @@ private struct PullRequestDetailView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 8) {
-                Text(pullRequest.title).font(.system(size: 27, weight: .semibold))
+                Text(pullRequest.title).workspaceFont(size: 27, weight: .semibold)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("#\(pullRequest.number)").font(.system(size: 25)).foregroundStyle(.secondary)
+                Text("#\(pullRequest.number)").workspaceFont(size: 25).foregroundStyle(.secondary)
                 Spacer(minLength: 10)
                 Button {
                     selectedTab = .checks
@@ -1363,21 +2041,21 @@ private struct PullRequestDetailView: View {
             }
             HStack(spacing: 7) {
                 Label(pullRequest.mergedAt == nil ? pullRequest.state.capitalized : "Merged", systemImage: pullRequest.mergedAt == nil ? (pullRequest.state == "open" ? "arrow.triangle.pull" : "checkmark") : "checkmark")
-                    .font(.callout.weight(.semibold))
+                    .workspaceFont(.callout, weight: .semibold)
                     .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(pullRequest.mergedAt != nil ? Color.purple : (pullRequest.state == "open" ? Color.green : Color.secondary), in: Capsule())
+                    .workspaceSurfaceBackground(pullRequest.mergedAt != nil ? Color.purple : (pullRequest.state == "open" ? Color.green : Color.secondary), in: Capsule())
                     .foregroundStyle(.white)
                 Text("@\(pullRequest.user?.login ?? "unknown") wants to merge \(commitCount) \(commitCount == 1 ? "commit" : "commits") into")
                     .foregroundStyle(.secondary)
                 Text(pullRequest.base?.ref ?? "base")
-                    .font(.system(.callout, design: .monospaced).weight(.semibold))
+                    .workspaceFont(.callout, weight: .semibold, design: .monospaced)
                     .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
+                    .workspaceSurfaceBackground(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
                 Text("from") .foregroundStyle(.secondary)
                 Text(pullRequest.head?.ref ?? "head")
-                    .font(.system(.callout, design: .monospaced).weight(.semibold))
+                    .workspaceFont(.callout, weight: .semibold, design: .monospaced)
                     .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                    .workspaceSurfaceBackground(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
                 Spacer()
             }
         }
@@ -1396,12 +2074,12 @@ private struct PullRequestDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "arrow.triangle.merge")
-                    .font(.title2.weight(.semibold))
+                    .workspaceFont(.title2, weight: .semibold)
                     .foregroundStyle(.white)
                     .frame(width: 48, height: 48)
-                    .background(Color.green, in: RoundedRectangle(cornerRadius: 10))
+                    .workspaceSurfaceBackground(Color.green, in: RoundedRectangle(cornerRadius: 10))
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Commit message").font(.headline)
+                    Text("Commit message").workspaceFont(.headline)
                     TextField("Commit message", text: $mergeCommitTitle)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("merge-commit-title")
@@ -1409,13 +2087,13 @@ private struct PullRequestDetailView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Extended description").font(.headline)
+                Text("Extended description").workspaceFont(.headline)
                 TextEditor(text: $mergeCommitMessage)
-                    .font(.body)
+                    .workspaceFont(.body)
                     .frame(minHeight: 120)
                     .scrollContentBackground(.hidden)
                     .padding(6)
-                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                    .workspaceSurfaceBackground(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.35)))
                     .accessibilityIdentifier("merge-commit-description")
             }
@@ -1439,7 +2117,7 @@ private struct PullRequestDetailView: View {
             }
         }
         .padding(16)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.35)))
         .accessibilityIdentifier("merge-confirmation-form")
     }
@@ -1460,18 +2138,18 @@ private struct PullRequestDetailView: View {
                     HStack(spacing: 8) {
                         Label(tab.rawValue, systemImage: tab.symbol)
                         Text("\(count(for: tab))")
-                            .font(.caption.weight(.semibold).monospacedDigit())
+                            .workspaceFont(.caption, weight: .semibold, monospacedDigits: true)
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.primary.opacity(0.08), in: Capsule())
+                            .workspaceSurfaceBackground(Color.primary.opacity(0.08), in: Capsule())
                     }
                     .padding(.horizontal, 12).padding(.vertical, 10)
-                    .background(selectedTab == tab ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                    .workspaceSurfaceBackground(selectedTab == tab ? Color.primary.opacity(0.06) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("pull-request-tab-\(tab.id.replacingOccurrences(of: " ", with: "-").lowercased())")
             }
             Spacer(minLength: 8)
-            Text(changeStats).font(.caption.weight(.semibold).monospacedDigit())
+            Text(changeStats).workspaceFont(.caption, weight: .semibold, monospacedDigits: true)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("pull-request-change-stats")
         }
@@ -1503,7 +2181,7 @@ private struct PullRequestDetailView: View {
                 }
             }
             if store.selectedPullRequestNumber == pullRequest.number, let message = store.pullRequestActionMessage {
-                Text(message).font(.callout).foregroundStyle(.secondary)
+                Text(message).workspaceFont(.callout).foregroundStyle(.secondary)
                     .accessibilityIdentifier("pull-request-action-message")
             }
         }
@@ -1514,20 +2192,20 @@ private struct PullRequestDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 9) {
-                    Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(.secondary)
+                    Image(systemName: "person.crop.circle.fill").workspaceFont(.title2).foregroundStyle(.secondary)
                     Text("@\(pullRequest.user?.login ?? "unknown")").fontWeight(.semibold)
                     Text("commented \(displayGitHubTimestamp(pullRequest.updatedAt))").foregroundStyle(.secondary)
                     Spacer()
-                    Text("Author").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Author").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .overlay(Capsule().stroke(Color.accentColor.opacity(0.45)))
                 }
                 .padding(12)
-                .background(Color.accentColor.opacity(0.08))
+                .workspaceSurfaceBackground(Color.accentColor.opacity(0.08))
                 MarkdownPreviewView(markdown: pullRequest.body?.isEmpty == false ? pullRequest.body! : "No description provided.")
                     .padding(18)
             }
-            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.accentColor.opacity(0.55), lineWidth: 1))
 
             if store.selectedPullRequestComments.isEmpty && store.selectedPullRequestReviews.isEmpty && store.selectedPullRequestReviewComments.isEmpty {
@@ -1558,13 +2236,13 @@ private struct PullRequestDetailView: View {
             Text(body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.15)))
     }
 
     private var commits: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Commits on this pull request").font(.headline)
+            Text("Commits on this pull request").workspaceFont(.headline)
             if store.selectedPullRequestCommits.isEmpty {
                 ContentUnavailableView("No commits returned", systemImage: "point.3.connected.trianglepath.dotted")
             }
@@ -1575,20 +2253,20 @@ private struct PullRequestDetailView: View {
                         Text(commit.commit.message.components(separatedBy: "\n").first ?? commit.sha)
                             .fontWeight(.medium).lineLimit(2)
                         Text("\(commit.sha.prefix(7)) · \(displayGitHubTimestamp(commit.commit.author?.date))")
-                            .font(.caption.monospaced()).foregroundStyle(.secondary)
+                            .workspaceFont(.caption, design: .monospaced).foregroundStyle(.secondary)
                     }
                     Spacer()
                     Link("Open", destination: commit.htmlURL)
                 }
                 .padding(12)
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
             }
         }
     }
 
     private var checks: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Checks").font(.headline)
+            Text("Checks").workspaceFont(.headline)
             if let error = store.selectedPullRequestChecksError {
                 ContentUnavailableView("Checks unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
             } else if store.selectedPullRequestChecks.isEmpty {
@@ -1600,20 +2278,20 @@ private struct PullRequestDetailView: View {
                         .foregroundStyle(check.conclusion == "success" ? Color.green : check.status == "completed" ? Color.red : Color.secondary)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(check.name).fontWeight(.medium)
-                        Text(check.conclusion ?? check.status).font(.caption).foregroundStyle(.secondary)
+                        Text(check.conclusion ?? check.status).workspaceFont(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if let url = check.htmlURL { Link("Details", destination: url) }
                 }
                 .padding(12)
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
             }
         }
     }
 
     private var filesChanged: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Changed files (\(store.selectedPullRequestFiles.count))").font(.headline)
+            Text("Changed files (\(store.selectedPullRequestFiles.count))").workspaceFont(.headline)
             if store.selectedPullRequestFiles.isEmpty {
                 ContentUnavailableView("No changed files returned", systemImage: "doc.text")
             }
@@ -1621,24 +2299,24 @@ private struct PullRequestDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Image(systemName: "doc.text").foregroundStyle(.secondary)
-                        Text(file.filename).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                        Text(file.filename).workspaceFont(.callout, design: .monospaced).textSelection(.enabled)
                         Spacer()
                         Text("+\(file.additions)").foregroundStyle(.green)
                         Text("−\(file.deletions)").foregroundStyle(.red)
                     }
                     if let patch = file.patch {
                         ScrollView(.horizontal) {
-                            Text(patch).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                            Text(patch).workspaceFont(.caption, design: .monospaced).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .padding(10)
-                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                     } else {
-                        Text("Diff unavailable for this file.").font(.caption).foregroundStyle(.secondary)
+                        Text("Diff unavailable for this file.").workspaceFont(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .padding(12)
-                .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 8))
+                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.14)))
             }
         }
@@ -1646,8 +2324,8 @@ private struct PullRequestDetailView: View {
 
     private var reviewComposer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Leave a comment or review").font(.headline)
-            TextEditor(text: $responseText).font(.body).frame(minHeight: 85, maxHeight: 150)
+            Text("Leave a comment or review").workspaceFont(.headline)
+            TextEditor(text: $responseText).workspaceFont(.body).frame(minHeight: 85, maxHeight: 150)
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
                 .accessibilityIdentifier("pull-request-review-response")
             HStack {
@@ -1659,7 +2337,7 @@ private struct PullRequestDetailView: View {
             .disabled(responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.pullRequestActionInProgress)
         }
         .padding(14)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var metadataSidebar: some View {
@@ -1683,7 +2361,7 @@ private struct PullRequestDetailView: View {
                 let labels = pullRequest.labels ?? []
                 if labels.isEmpty { Text("None yet").foregroundStyle(.secondary) }
                 else {
-                    HStack { ForEach(labels) { label in Text(label.name).font(.caption.weight(.medium)).padding(.horizontal, 8).padding(.vertical, 4).background(Color.accentColor.opacity(0.12), in: Capsule()) } }
+                    HStack { ForEach(labels) { label in Text(label.name).workspaceFont(.caption, weight: .medium).padding(.horizontal, 8).padding(.vertical, 4).workspaceSurfaceBackground(Color.accentColor.opacity(0.12), in: Capsule()) } }
                 }
             }
             metadataSection("Projects") { Text("None yet").foregroundStyle(.secondary) }
@@ -1694,16 +2372,16 @@ private struct PullRequestDetailView: View {
             }
             metadataSection("Notifications") { Text("Notification settings are managed by GitHub.").foregroundStyle(.secondary) }
         }
-        .font(.callout)
+        .workspaceFont(.callout)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func metadataSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                Text(title).workspaceFont(.subheadline, weight: .semibold).foregroundStyle(.secondary)
                 Spacer()
-                Image(systemName: "gearshape").font(.caption).foregroundStyle(.tertiary)
+                Image(systemName: "gearshape").workspaceFont(.caption).foregroundStyle(.tertiary)
             }
             content()
             Divider()
@@ -1754,7 +2432,7 @@ private struct MarkdownMessageView: View {
             if isExpanded {
                 Group {
                     if showsMarkdownSource {
-                        Text(markdown).font(.body.monospaced())
+                        Text(markdown).workspaceFont(.body, design: .monospaced)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityIdentifier("message-source-\(id)")
@@ -1890,11 +2568,11 @@ private struct MarkdownPreviewView: View {
         switch block.style {
         case let .heading(level):
             Text(readableMarkdown(block.text))
-                .font(.system(size: [0: 23, 1: 23, 2: 20, 3: 18, 4: 16, 5: 15, 6: 14][level] ?? 14, weight: .semibold))
+                .workspaceFont(size: [0: 23, 1: 23, 2: 20, 3: 18, 4: 16, 5: 15, 6: 14][level] ?? 14, weight: .semibold)
                 .fixedSize(horizontal: false, vertical: true)
         case .paragraph:
             Text(readableMarkdown(block.text))
-                .font(.body)
+                .workspaceFont(.body)
                 .fixedSize(horizontal: false, vertical: true)
         case .unorderedItem, .orderedItem:
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1915,11 +2593,11 @@ private struct MarkdownPreviewView: View {
             .padding(.leading, 8)
         case .code:
             Text(block.text)
-                .font(.system(.body, design: .monospaced))
+                .workspaceFont(.body, design: .monospaced)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         case .divider:
             Divider()
         }
@@ -1933,26 +2611,77 @@ private struct MarkdownPreviewView: View {
 
 private struct SettingsView: View {
     @Bindable var store: WorkspaceStore
+    @AppStorage("contentAreaOpacity") private var contentAreaOpacity = 1.0
+    @AppStorage("workspaceFontSize") private var workspaceFontSize = "medium"
+    @AppStorage("workspaceAppearance") private var workspaceAppearance = "system"
 
     var body: some View {
-        Form {
-            Section("GitHub") {
-                Text("Connection: \(store.connectionState.label)")
-                if !store.repositories.isEmpty {
-                    Button("Sign Out", role: .destructive) { store.signOut() }
-                } else if case .needsConfiguration = store.connectionState {
-                    Text("Client ID is read from the app’s GitHubClientID configuration key.")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                settingsCard("Appearance") {
+                    HStack {
+                        Text("Theme")
+                        Spacer()
+                        Picker("Theme", selection: $workspaceAppearance) {
+                            Text("System").tag("system")
+                            Text("Light").tag("light")
+                            Text("Dark").tag("dark")
+                        }
+                        .labelsHidden()
+                        .accessibilityIdentifier("appearance-theme")
+                    }
+                    HStack {
+                        Text("Font Size")
+                        Spacer()
+                        Picker("Font Size", selection: $workspaceFontSize) {
+                            Text("Small").tag("small")
+                            Text("Medium").tag("medium")
+                            Text("Large").tag("large")
+                            Text("XL").tag("xl")
+                        }
+                        .labelsHidden()
+                        .accessibilityIdentifier("appearance-font-size")
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Card Background Opacity")
+                            Spacer()
+                            Text("\(Int(contentAreaOpacity * 100))%")
+                                .foregroundStyle(.secondary)
+                        }
+                        Slider(value: $contentAreaOpacity, in: 0.2...1, step: 0.05)
+                            .accessibilityIdentifier("content-area-opacity")
+                    }
+                }
+                settingsCard("GitHub") {
+                    Text("Connection: \(store.connectionState.label)")
+                    if !store.repositories.isEmpty {
+                        Button("Sign Out", role: .destructive) { store.signOut() }
+                    } else if case .needsConfiguration = store.connectionState {
+                        Text("Client ID is read from the app’s GitHubClientID configuration key.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                settingsCard("Access") {
+                    Text("GitHub writes are limited to pull request creation, comments, reviews, and confirmed merges. The app never pushes local branches. Sign out removes the token and leaves local clones untouched.")
                         .foregroundStyle(.secondary)
                 }
             }
-            Section("Access") {
-                Text("GitHub writes are limited to pull request creation, comments, reviews, and confirmed merges. The app never pushes local branches. Sign out removes the token and leaves local clones untouched.")
-                    .foregroundStyle(.secondary)
-            }
+            .frame(maxWidth: 700, alignment: .leading)
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .formStyle(.grouped)
-        .frame(maxWidth: 700, alignment: .leading)
-        .padding(24)
+    }
+
+    private func settingsCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).workspaceFont(.headline)
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.2)))
     }
 }
 

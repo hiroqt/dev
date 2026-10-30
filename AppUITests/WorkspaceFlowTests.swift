@@ -38,6 +38,8 @@ final class WorkspaceFlowTests: XCTestCase {
         XCTAssertEqual(sidebarToggle.label, "Hide Sidebar")
         let activity = app.descendants(matching: .any)["nav-activity"]
         XCTAssertTrue(activity.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Local Projects"].exists)
+        XCTAssertTrue(app.buttons["add-local-project"].exists)
 
         sidebarToggle.click()
         XCTAssertEqual(sidebarToggle.label, "Show Sidebar")
