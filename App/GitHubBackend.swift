@@ -68,9 +68,11 @@ enum GitHubBackendError: LocalizedError, Equatable {
     case deviceFlowDisabled
     case incorrectClientCredentials
     case unauthorized
-    case forbidden
+    case forbidden(String?)
     case contributionAccessDenied
     case invalidPullRequestAction
+    case pullRequestNotMergeable
+    case mergeConflict
     case rateLimited(Date?)
     case httpStatus(Int)
     case deviceCodeExpired
@@ -86,9 +88,12 @@ enum GitHubBackendError: LocalizedError, Equatable {
         case .deviceFlowDisabled: "Enable Device Flow in your GitHub App settings, then try again."
         case .incorrectClientCredentials: "The configured GitHub App client ID was rejected. Check Config/GitHub.xcconfig."
         case .unauthorized: "GitHub sign-in expired. Sign in again to refresh repository access."
-        case .forbidden: "GitHub denied access. Check the app installation and organization approval. PR actions also require Pull requests: write permission in the GitHub App settings."
+        case .forbidden(let message):
+            "GitHub denied access.\(message.map { " GitHub said: \($0)." } ?? "") Check the GitHub App's Pull requests: write permission, repository installation access, and organization approval."
         case .contributionAccessDenied: "GitHub denied contribution access. Check the app's read permissions and contribution privacy settings."
-        case .invalidPullRequestAction: "Enter a non-empty review message and check that the pull request number is valid."
+        case .invalidPullRequestAction: "The pull request details are invalid. Check the title, branches, message, and pull request number."
+        case .pullRequestNotMergeable: "GitHub rejected the merge. Check the pull request's merge conflicts, required reviews, checks, and branch protection rules."
+        case .mergeConflict: "The base branch changed while merging. Refresh the pull request and try again."
         case .rateLimited(let retryAt):
             if let retryAt { "GitHub rate limit reached. Try again after \(retryAt.formatted(date: .omitted, time: .shortened))." }
             else { "GitHub rate limit reached. Try again shortly." }
@@ -131,20 +136,38 @@ struct GitHubCommit: Decodable, Identifiable, Sendable {
 struct GitHubPullRequest: Decodable, Identifiable, Sendable {
     let number: Int
     let title: String
-    let state: String
+    var state: String
     let htmlURL: URL
     let updatedAt: String
-    let mergedAt: String?
+    var mergedAt: String?
     let body: String?
     let user: User?
+    let base: Branch?
+    let head: Branch?
+    let commits: Int?
+    let changedFiles: Int?
+    let additions: Int?
+    let deletions: Int?
+    let labels: [Label]?
+    let requestedReviewers: [User]?
+    let assignees: [User]?
+    let milestone: Milestone?
+    let mergeable: Bool?
+    let mergeableState: String?
     var id: Int { number }
 
     struct User: Decodable, Sendable { let login: String }
+    struct Branch: Decodable, Sendable { let ref: String; let sha: String?; let label: String? }
+    struct Label: Decodable, Identifiable, Sendable { let name: String; let color: String?; var id: String { name } }
+    struct Milestone: Decodable, Sendable { let number: Int; let title: String }
     enum CodingKeys: String, CodingKey {
-        case number, title, state, body, user
+        case number, title, state, body, user, base, head, commits, additions, deletions, labels, assignees, milestone, mergeable
         case htmlURL = "html_url"
         case updatedAt = "updated_at"
         case mergedAt = "merged_at"
+        case changedFiles = "changed_files"
+        case requestedReviewers = "requested_reviewers"
+        case mergeableState = "mergeable_state"
     }
 }
 
@@ -176,6 +199,15 @@ struct GitHubPullRequestReview: Decodable, Identifiable, Sendable {
     let user: User?
     struct User: Decodable, Sendable { let login: String }
     enum CodingKeys: String, CodingKey { case id, state, body, user; case submittedAt = "submitted_at" }
+}
+
+struct GitHubCheckRun: Decodable, Identifiable, Sendable {
+    let id: Int64
+    let name: String
+    let status: String
+    let conclusion: String?
+    let htmlURL: URL?
+    enum CodingKeys: String, CodingKey { case id, name, status, conclusion; case htmlURL = "html_url" }
 }
 
 struct GitHubMergeResult: Decodable, Sendable {
@@ -253,16 +285,20 @@ protocol GitHubProjectHistoryProviding: Sendable {
     func branches(repository: GitHubRepository, accessToken: String) async throws -> [GitHubBranch]
     func commits(repository: GitHubRepository, branch: String, accessToken: String) async throws -> [GitHubCommit]
     func pullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest]
+    func openPullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest]
 }
 
 protocol GitHubPullRequestManaging: Sendable {
+    func pullRequestCommits(repository: GitHubRepository, number: Int, accessToken: String) async throws -> [GitHubCommit]
+    func pullRequestChecks(repository: GitHubRepository, headSHA: String, accessToken: String) async throws -> [GitHubCheckRun]
     func pullRequestFiles(repository: GitHubRepository, number: Int, accessToken: String) async throws -> [GitHubPullRequestFile]
     func pullRequestComments(repository: GitHubRepository, number: Int, accessToken: String) async throws -> [GitHubPullRequestComment]
     func pullRequestReviewComments(repository: GitHubRepository, number: Int, accessToken: String) async throws -> [GitHubPullRequestComment]
     func pullRequestReviews(repository: GitHubRepository, number: Int, accessToken: String) async throws -> [GitHubPullRequestReview]
     func comment(on repository: GitHubRepository, number: Int, body: String, accessToken: String) async throws
     func submitReview(on repository: GitHubRepository, number: Int, body: String, event: String, accessToken: String) async throws
-    func merge(repository: GitHubRepository, number: Int, accessToken: String) async throws -> GitHubMergeResult
+    func merge(repository: GitHubRepository, number: Int, commitTitle: String, commitMessage: String, accessToken: String) async throws -> GitHubMergeResult
+    func createPullRequest(repository: GitHubRepository, head: String, base: String, title: String, body: String, accessToken: String) async throws -> GitHubPullRequest
 }
 
 protocol GitHubContributionProviding: Sendable {
@@ -328,6 +364,51 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
         try await list(GitHubPullRequest.self, repository: repository, endpoint: "pulls", accessToken: accessToken, query: [URLQueryItem(name: "state", value: "all")])
     }
 
+    func openPullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest] {
+        try await list(GitHubPullRequest.self, repository: repository, endpoint: "pulls", accessToken: accessToken, query: [URLQueryItem(name: "state", value: "open")])
+    }
+
+    func pullRequestCommits(repository: GitHubRepository, number: Int, accessToken: String) async throws -> [GitHubCommit] {
+        guard number > 0 else { throw GitHubBackendError.invalidPullRequestAction }
+        return try await list(GitHubCommit.self, repository: repository, endpoint: "pulls/\(number)/commits", accessToken: accessToken)
+    }
+
+    func pullRequestChecks(repository: GitHubRepository, headSHA: String, accessToken: String) async throws -> [GitHubCheckRun] {
+        guard headSHA.count == 40, headSHA.allSatisfy(\.isHexDigit), !accessToken.isEmpty else {
+            throw GitHubBackendError.invalidResponse
+        }
+        let parts = repository.fullName.split(separator: "/")
+        guard parts.count == 2, let repositoryURL = repository.safeGitHubURL, repositoryURL.path == "/\(repository.fullName)" else {
+            throw GitHubBackendError.invalidResponse
+        }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        guard let owner = String(parts[0]).addingPercentEncoding(withAllowedCharacters: allowed),
+              let name = String(parts[1]).addingPercentEncoding(withAllowedCharacters: allowed) else {
+            throw GitHubBackendError.invalidResponse
+        }
+        var checks: [GitHubCheckRun] = []
+        var page = 1
+        repeat {
+            var components = URLComponents(string: "https://api.github.com/repos/\(owner)/\(name)/commits/\(headSHA)/check-runs")!
+            components.queryItems = [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
+            guard let url = components.url else { throw GitHubBackendError.invalidResponse }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 20
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.setValue(Self.apiVersion, forHTTPHeaderField: "X-GitHub-Api-Version")
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            let response = try await transport.send(request)
+            try validate(response)
+            guard let result = try? JSONDecoder().decode(CheckRunsResponse.self, from: response.data) else {
+                throw GitHubBackendError.invalidResponse
+            }
+            checks.append(contentsOf: result.checkRuns)
+            guard result.checkRuns.count == 100, checks.count < result.totalCount else { return checks }
+            page += 1
+        } while true
+    }
+
     func pullRequestFiles(repository: GitHubRepository, number: Int, accessToken: String) async throws -> [GitHubPullRequestFile] {
         guard number > 0 else { throw GitHubBackendError.invalidPullRequestAction }
         return try await list(GitHubPullRequestFile.self, repository: repository, endpoint: "pulls/\(number)/files", accessToken: accessToken)
@@ -359,11 +440,26 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
         try await mutate(repository: repository, endpoint: "pulls/\(number)/reviews", body: ["body": body, "event": event], accessToken: accessToken)
     }
 
-    func merge(repository: GitHubRepository, number: Int, accessToken: String) async throws -> GitHubMergeResult {
+    func merge(repository: GitHubRepository, number: Int, commitTitle: String, commitMessage: String, accessToken: String) async throws -> GitHubMergeResult {
         guard number > 0 else { throw GitHubBackendError.invalidPullRequestAction }
-        let data = try await mutate(repository: repository, endpoint: "pulls/\(number)/merge", method: "PUT", body: ["merge_method": "merge"], accessToken: accessToken)
+        guard !commitTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              commitTitle.utf8.count <= 256,
+              commitMessage.utf8.count <= 65_536 else { throw GitHubBackendError.invalidPullRequestAction }
+        let data = try await mutate(repository: repository, endpoint: "pulls/\(number)/merge", method: "PUT", body: ["merge_method": "merge", "commit_title": commitTitle, "commit_message": commitMessage], accessToken: accessToken)
         guard let result = try? JSONDecoder().decode(GitHubMergeResult.self, from: data) else { throw GitHubBackendError.invalidResponse }
         return result
+    }
+
+    func createPullRequest(repository: GitHubRepository, head: String, base: String, title: String, body: String, accessToken: String) async throws -> GitHubPullRequest {
+        guard !head.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !base.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              head != base,
+              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              title.utf8.count <= 256,
+              body.utf8.count <= 65_536 else { throw GitHubBackendError.invalidPullRequestAction }
+        let data = try await mutate(repository: repository, endpoint: "pulls", body: ["head": head, "base": base, "title": title, "body": body], accessToken: accessToken)
+        guard let request = try? JSONDecoder().decode(GitHubPullRequest.self, from: data) else { throw GitHubBackendError.invalidResponse }
+        return request
     }
 
     func viewerLogin(accessToken: String) async throws -> String {
@@ -515,7 +611,17 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         let response = try await transport.send(request)
         try Task.checkCancellation()
-        guard (200..<300).contains(response.statusCode) else { try validate(response); throw GitHubBackendError.httpStatus(response.statusCode) }
+        guard (200..<300).contains(response.statusCode) else {
+            if endpoint.hasSuffix("/merge") {
+                switch response.statusCode {
+                case 405: throw GitHubBackendError.pullRequestNotMergeable
+                case 409: throw GitHubBackendError.mergeConflict
+                default: break
+                }
+            }
+            try validate(response)
+            throw GitHubBackendError.httpStatus(response.statusCode)
+        }
         return response.data
     }
 
@@ -526,7 +632,7 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
         case 403 where response.headers["x-ratelimit-remaining"] == "0", 429:
             let reset = response.headers["x-ratelimit-reset"].flatMap(TimeInterval.init).map(Date.init(timeIntervalSince1970:))
             throw GitHubBackendError.rateLimited(reset)
-        case 403: throw GitHubBackendError.forbidden
+        case 403: throw GitHubBackendError.forbidden(githubErrorMessage(response.data))
         default: throw GitHubBackendError.httpStatus(response.statusCode)
         }
     }
@@ -535,6 +641,12 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
         guard number > 0,
               !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               body.utf8.count <= 65_536 else { throw GitHubBackendError.invalidPullRequestAction }
+    }
+
+    private func githubErrorMessage(_ data: Data) -> String? {
+        guard let message = try? JSONDecoder().decode(GitHubAPIErrorResponse.self, from: data).message else { return nil }
+        let sanitized = message.split(whereSeparator: { $0.isNewline }).joined(separator: " ").prefix(300)
+        return sanitized.isEmpty ? nil : String(sanitized)
     }
 }
 
@@ -747,6 +859,16 @@ private struct OAuthTokenResponse: Decodable {
 
 private struct OAuthErrorResponse: Decodable {
     let error: String?
+}
+
+private struct GitHubAPIErrorResponse: Decodable {
+    let message: String?
+}
+
+private struct CheckRunsResponse: Decodable {
+    let totalCount: Int
+    let checkRuns: [GitHubCheckRun]
+    enum CodingKeys: String, CodingKey { case totalCount = "total_count", checkRuns = "check_runs" }
 }
 
 enum GitHubConfiguration {

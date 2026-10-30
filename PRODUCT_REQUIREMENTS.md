@@ -11,14 +11,14 @@ The user manages multiple GitHub repositories and currently has to open each rep
 
 ## Product outcome
 
-After signing in to GitHub, the user can discover repositories they are permitted to access, choose repositories to clone locally, review a visual, source-linked summary of project activity, and complete selected pull-request review actions. The app can read GitHub and inspect its own local clones. GitHub writes are limited to PR comments, submitted reviews, and merges.
+After signing in to GitHub, the user can discover repositories they are permitted to access, choose repositories to clone locally, review a visual, source-linked summary of project activity, create pull requests from branches already pushed to GitHub, and complete selected pull-request actions. The app can read GitHub and inspect its own local clones. It does not push local branches. GitHub writes are limited to PR creation, comments, submitted reviews, and merges.
 
 ## Product principles
 
 - **One personal command center:** cross-project activity is visible without losing repository context.
 - **Visual first, verifiable:** graphs and status cards expose the underlying PR, commit, issue, or check when clicked.
 - **Local state is explicit:** distinguish remote GitHub state from local clone and worktree state.
-- **Limited PR actions:** v1 can comment on, review, and merge pull requests. All other GitHub resources remain read-only.
+- **Limited PR actions:** v1 can create a PR from a branch already on GitHub, comment on and review PRs, and merge them. All other GitHub resources remain read-only.
 - **AI is optional and grounded:** AI explanations cite the records they summarize; the app’s activity graph is computed from GitHub/Git data.
 
 ## Navigation and visual direction
@@ -50,7 +50,7 @@ After signing in to GitHub, the user can discover repositories they are permitte
 
 ### GitHub project details
 
-- **Pull requests:** list open and closed PRs; show title, author, reviewers, labels, checks/statuses, changed files and available patches, description, reviews, inline review comments, conversation comments, state, and merge time. On open PRs, allow a comment, a comment-only/approve/request-changes review, or a merge after confirmation.
+- **Pull requests:** list open and closed PRs; show title, author, reviewers, labels, checks/statuses, changed files and available patches, description, reviews, inline review comments, conversation comments, state, and merge time. Create a PR from branches already pushed to GitHub. On open PRs, allow a comment, a comment-only/approve/request-changes review, or a merge after confirmation. Show each project’s open PR count in the sidebar.
 - **Issues and bugs:** title, state, author, assignee, labels, recent activity, and GitHub link.
 - **Contributors:** contributor and PR-author identities, contribution context, and GitHub profile links. Avoid implying an exact ranking when GitHub data is incomplete.
 - **Recent items:** a cross-project activity feed for new/updated PRs, commits, issue changes, reviews, and merges, with project/type/state filters.
@@ -91,7 +91,7 @@ After signing in to GitHub, the user can discover repositories they are permitte
 17. As the user, I want a visual project overview with source links so that I can understand activity and verify details.
 18. As the user, I want AI explanations to use selected GitHub data and link to evidence so that summaries remain reviewable.
 19. As the user, I want to control AI use and notifications so that the app’s data handling matches my preferences.
-20. As the user, I want to inspect closed PR files and discussion, comment or submit a review on an open PR, and merge an open PR after confirmation.
+20. As the user, I want to create a PR from a pushed branch, inspect closed PR files and discussion, comment or submit a review on an open PR, and merge an open PR after confirmation.
 
 ## Acceptance criteria
 
@@ -100,19 +100,19 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - The user can choose a parent folder and clone a selected repository under its repository name. Existing/non-empty target paths are protected from overwrite.
 - The project view distinguishes GitHub remote branches/commits from local branches, working-tree state, and linked worktrees.
 - The branch graph can navigate to the related commit and, where available, PR/merge record. Deleted remote branches remain visible as historical PR/merge records when GitHub still exposes that data.
-- PR detail includes the fields listed in scope, changed-file patches when GitHub provides them, review history, inline review comments, and conversation comments, with links to the authoritative GitHub page. Open PRs expose comment, review, and confirmed merge actions; closed PRs remain inspectable without write actions. The contribution graph keeps GitHub's contribution-calendar counts; comments and merges remain activity rather than invented contribution types.
+- PR detail includes the fields listed in scope, changed-file patches when GitHub provides them, review history, inline review comments, and conversation comments, with links to the authoritative GitHub page. The user can create a PR using an existing remote head/base branch. Open PRs expose comment, review, and confirmed merge actions; closed PRs remain inspectable without write actions. The contribution graph keeps GitHub's contribution-calendar counts; comments and merges remain activity rather than invented contribution types.
 - Issues, contributor identities, and recent items show loading, empty, stale, and access-error states distinctly.
 - Preview links require a user click and open only recognized web URLs in the system browser.
 - New/changed PR detection covers all accessible repositories by default, runs on foreground and the configured polling schedule while the app is running, and shows per-repository stale state and rate-limit delays. Full PR details load on demand.
-- GitHub writes are limited to explicit PR comments, reviews, and confirmed merges. Clone/fetch remain read operations; local cloning writes only under the user-selected destination.
+- GitHub writes are limited to explicit PR creation, comments, reviews, and confirmed merges. Clone/fetch remain read operations; local cloning writes only under the user-selected destination. The app never pushes a local branch.
 - Any enabled AI explanation identifies its source records. AI is unavailable until its provider/data-handling choice and consent flow are defined.
 - The navigation consistently presents repositories as projects, with distinct cross-project **All Projects** and **Activity** destinations and project-specific **Overview**, **Branches**, **Commits**, **Pull Requests**, and **Issues** destinations.
 - The interface targets the latest macOS release supported at implementation and remains usable with keyboard navigation, VoiceOver labels, and system appearance settings.
-- Repository cards adapt their column count and content width to the available window size, including fullscreen; commit messages and PR descriptions appear with their own records and can be expanded or minimized, messages offer readable Preview and raw Markdown modes, timestamps use `MMM d, yyyy, h:mm a`, project navigation buttons have consistent padding, and the sidebar identifies the signed-in GitHub username.
+- Repository cards adapt their column count and content width to the available window size, including fullscreen; commit messages and PR descriptions appear with their own records and can be expanded or minimized, messages offer readable Preview and raw Markdown modes, timestamps use `MMM d, yyyy, h:mm a`, project navigation buttons have consistent padding, the sidebar identifies the signed-in GitHub username, and project rows show open PR counts.
 
 ## Out of scope for v1
 
-- Creating or editing GitHub issues, PRs, labels, branches, releases, or repository settings; closing PRs; resolving review threads; or running GitHub Actions.
+- Editing GitHub issues or PRs, labels, branches, releases, or repository settings; closing PRs; resolving review threads; or running GitHub Actions.
 - Pushing commits or changing repository settings.
 - Editing, browsing, or executing source code in the app.
 - Creating additional Git worktrees or managing source changes. The app reports existing worktrees it can detect.

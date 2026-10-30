@@ -20,7 +20,8 @@ flowchart TD
     K --> L[Project workspace: Overview, Branches, Commits, Pull Requests, Issues]
     L --> M[Inspect branch graph and local worktree state]
     L --> N[Inspect open/closed PRs, checks, files, conversations]
-    N --> N1[Comment, review, or confirm merge on open PR]
+    N --> N1[Create PR from pushed branch, comment, review, or confirm merge]
+    L --> N2[Show each project's open PR count in sidebar]
     L --> O[Inspect issues and contributors]
     L --> P[Open GitHub-reported preview]
     L --> Q[Ask for AI explanation]
@@ -42,7 +43,7 @@ flowchart TD
 
 ### 1. First launch and GitHub sign-in
 
-- Explain that GitHub project data is read and selected repositories can be cloned locally. PR comments, submitted reviews, and confirmed merges are the only GitHub write actions.
+- Explain that GitHub project data is read and selected repositories can be cloned locally. PR creation, comments, submitted reviews, and confirmed merges are the only GitHub write actions. A new PR uses branches already pushed to GitHub; the app never pushes local branches.
 - Start GitHub App Device Flow. Show the verification code, expiration, and a button to open GitHub’s verification page in the default browser.
 - Poll at GitHub’s instructed interval. Show pending, denied, expired, network-error, and success states distinctly.
 - Save tokens in Keychain. If access expires or is revoked, pause synchronization and offer sign-in again.
@@ -84,9 +85,11 @@ flowchart TD
 
 ### 6. Pull requests, issues, commits, and contributors
 
-- Selecting an open or closed PR opens its state, title, author, reviewers, labels, checks, changed files and available patches, description, review history, conversation comments, and merge time. On open PRs the user can comment, submit a comment/approve/request-changes review, or merge after confirmation. Closed PRs stay read-only.
+- The Pull Requests page offers **New pull request** for an existing remote head branch and base branch. Creating it adds the returned PR to the list and updates the project's open-PR badge.
+- Selecting an open or closed PR opens its state, title, author, reviewers, labels, checks, changed files and available patches, description, review history, inline review comments, conversation comments, and merge time. On open PRs the user can comment, submit a comment/approve/request-changes review, or merge after confirmation. Closed PRs stay read-only.
 - Merge uses GitHub's merge-commit strategy and requires an explicit confirmation. GitHub remains responsible for branch protections and mergeability; failures are shown without claiming the PR was merged.
 - The contribution graph uses GitHub's calendar counts. PR comments and merges can be shown as PR activity without being added as contribution counts.
+- The sidebar shows each cloned project's count of open pull requests; counts refresh across accessible repositories after repository discovery/refresh.
 - Selecting an issue shows state, labels, assignee, author, and activity.
 - Selecting a contributor shows available profile and repository activity links; do not claim all contribution history if API access is incomplete.
 - Selecting a commit opens its details and GitHub page; local graph selection may also focus the commit in the branch graph.
