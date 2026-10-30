@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct WorkspaceView: View {
@@ -61,12 +62,15 @@ struct WorkspaceView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $showingRepositorySearch) {
             RepositorySearchSheet(store: store) { repository in
-                selection = .project(repository.id, .overview)
+                selection = store.isCloned(repository) ? .project(repository.id, .overview) : .allProjects
                 showingRepositorySearch = false
             }
         }
         .task {
             await store.restoreSession()
+        }
+        .onChange(of: store.authorization?.verificationURL) { _, url in
+            if let url { NSWorkspace.shared.open(url) }
         }
     }
 
@@ -117,10 +121,14 @@ struct WorkspaceView: View {
                 }
 
                 Section {
-                    ForEach(store.filteredRepositories) { repository in
+                    ForEach(store.clonedRepositories) { repository in
                         Label(repository.name, systemImage: "shippingbox")
                             .font(.system(size: 15, weight: .medium))
                             .tag(Destination.project(repository.id, .overview))
+                    }
+                    if store.clonedRepositories.isEmpty {
+                        Text("Clone a repository from All Projects")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 } header: {
                     Text("Projects")
@@ -139,7 +147,7 @@ struct WorkspaceView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("GitHub account")
                             .font(.system(size: 15, weight: .semibold))
-                        Text(store.sidebarAccountStatus)
+                        Text(store.signedInUsername.map { "@\($0)" } ?? store.sidebarAccountStatus)
                             .font(.system(size: 13)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
@@ -186,7 +194,7 @@ struct WorkspaceView: View {
                     compactButton("Activity", icon: "waveform.path", selected: selection == .activity, id: "compact-nav-activity") {
                         selection = .activity
                     }
-                    ForEach(store.filteredRepositories) { repository in
+                    ForEach(store.clonedRepositories) { repository in
                         compactButton(repository.name, icon: "shippingbox", selected: isProjectSelected(repository.id), id: "compact-project-\(repository.id)") {
                             selection = .project(repository.id, .overview)
                         }
@@ -199,7 +207,7 @@ struct WorkspaceView: View {
             Spacer(minLength: 8)
             Divider()
             VStack(spacing: 6) {
-                compactButton("GitHub account: \(store.sidebarAccountStatus)", icon: "person.crop.circle.fill", selected: false, id: "compact-account") {
+                compactButton("GitHub account: \(store.signedInUsername.map { "@\($0)" } ?? store.sidebarAccountStatus)", icon: "person.crop.circle.fill", selected: false, id: "compact-account") {
                     selection = .settings
                 }
                 compactButton("Settings", icon: "gearshape", selected: selection == .settings, id: "compact-nav-settings") {
@@ -255,15 +263,15 @@ struct WorkspaceView: View {
         switch selection {
         case .allProjects, nil:
             AllProjectsView(store: store) { repository in
-                selection = .project(repository.id, .overview)
+                if store.isCloned(repository) { selection = .project(repository.id, .overview) }
             }
         case .activity:
-            ContentUnavailableView("No activity yet", systemImage: "waveform.path", description: Text("Activity will appear here after repositories are connected."))
+            ActivityView(store: store)
         case .settings:
             SettingsView(store: store)
         case let .project(id, page):
-            if let repository = store.repository(id: id) {
-                ProjectWorkspaceView(repository: repository, page: page, openAllProjects: {
+            if let repository = store.repository(id: id), store.isCloned(repository) {
+                ProjectWorkspaceView(store: store, repository: repository, page: page, openAllProjects: {
                     selection = .allProjects
                 }) { nextPage in
                     selection = .project(id, nextPage)
@@ -272,6 +280,280 @@ struct WorkspaceView: View {
                 ContentUnavailableView("Repository unavailable", systemImage: "shippingbox")
             }
         }
+    }
+}
+
+private struct ActivityView: View {
+    @Bindable var store: WorkspaceStore
+    @State private var selectedYear = Self.currentYear
+
+    private static var currentYear: Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.component(.year, from: Date())
+    }
+
+    private var years: [Int] { (0..<5).map { Self.currentYear - $0 } }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(store.contributionActivity.map { "\($0.calendar.totalContributions.formatted()) contributions in \(selectedYear == years[0] ? "the last year" : String(selectedYear))" } ?? "Contribution activity")
+                            .font(.title2.weight(.semibold))
+                        if store.contributionActivityLoading {
+                            Label("Loading GitHub activity…", systemImage: "arrow.clockwise")
+                                .font(.callout).foregroundStyle(.secondary)
+                        } else if let error = store.contributionActivityError {
+                            Text(error).font(.callout).foregroundStyle(.secondary)
+                        } else if let activity = store.contributionActivity, activity.restrictedContributionsCount > 0 {
+                            Text("Includes \(activity.restrictedContributionsCount.formatted()) private contributions")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Menu {
+                        ForEach(years, id: \.self) { year in
+                            Button(String(year)) { selectedYear = year }
+                                .accessibilityIdentifier("activity-year-\(year)")
+                        }
+                    } label: {
+                        Label(String(selectedYear), systemImage: "chevron.down")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 9))
+                            .foregroundStyle(.white)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .accessibilityIdentifier("activity-year-selector")
+                    Button {
+                        Task { await store.loadContributionActivity(year: selectedYear) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Refresh contribution activity")
+                    .accessibilityLabel("Refresh contribution activity")
+                    .disabled(store.contributionActivityLoading)
+                }
+
+                VStack(spacing: 0) {
+                    Group {
+                        if store.contributionActivityLoading && store.contributionActivity == nil {
+                            ProgressView("Loading GitHub contribution activity…")
+                                .frame(maxWidth: .infinity, minHeight: 240)
+                        } else if let error = store.contributionActivityError {
+                            ContentUnavailableView {
+                                Label("Contribution activity unavailable", systemImage: "exclamationmark.triangle")
+                            } description: {
+                                Text(error)
+                            } actions: {
+                                Button("Retry") { Task { await store.loadContributionActivity(year: selectedYear) } }
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 240)
+                        } else if let activity = store.contributionActivity {
+                            contributionCalendar(activity.calendar)
+                                .padding(24)
+                            Divider()
+                            activityOverview(activity)
+                                .padding(26)
+                        } else {
+                            ProgressView("Loading GitHub contribution activity…")
+                                .frame(maxWidth: .infinity, minHeight: 240)
+                        }
+                    }
+                }
+                .background(Color(nsColor: .windowBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.25)))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 32)
+            .padding(.top, 28)
+            .padding(.bottom, 36)
+        }
+        .background(Color(nsColor: .underPageBackgroundColor))
+        .accessibilityIdentifier("activity-view")
+        .task(id: selectedYear) { await store.loadContributionActivity(year: selectedYear) }
+    }
+
+    private func contributionCalendar(_ calendar: GitHubContributionCalendar) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 0) {
+                ForEach(calendar.months) { month in
+                    Text(String(month.name.prefix(3)))
+                        .font(.callout.weight(.medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            GeometryReader { geometry in
+                let cell = max(8, min(17, (geometry.size.width - 48 - 52 * 4) / CGFloat(max(calendar.weeks.count, 1))))
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(spacing: 4) {
+                        ForEach(Array(["", "Mon", "", "Wed", "", "Fri", ""].enumerated()), id: \.offset) { _, day in
+                            Text(day)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 36, height: cell, alignment: .leading)
+                        }
+                    }
+                    HStack(alignment: .top, spacing: 4) {
+                        ForEach(calendar.weeks) { week in
+                            VStack(spacing: 4) {
+                                ForEach(0..<7, id: \.self) { row in
+                                    if let day = week.contributionDays.first(where: { $0.weekday == row }) {
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(contributionColor(day.contributionLevel))
+                                            .frame(width: cell, height: cell)
+                                            .help("\(day.contributionCount) contributions on \(day.date)")
+                                            .accessibilityLabel("\(day.contributionCount) contributions on \(day.date)")
+                                    } else {
+                                        Color.clear.frame(width: cell, height: cell)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(height: 7 * 17 + 6 * 4)
+            HStack {
+                Text("\(calendar.totalContributions.formatted()) contributions")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("Less")
+                    .foregroundStyle(.secondary)
+                ForEach(0..<5, id: \.self) { level in
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(contributionColor(for: level))
+                        .frame(width: 17, height: 17)
+                }
+                Text("More")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Contribution calendar for \(selectedYear), \(calendar.totalContributions) contributions.")
+    }
+
+    private func activityOverview(_ activity: GitHubContributionSummary) -> some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Activity overview")
+                    .font(.title3.weight(.semibold))
+                if activity.repositoryCount == 0 {
+                    Label("No commit repositories reported by GitHub", systemImage: "shippingbox")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Committed to \(activity.repositoryCount) repositories")
+                        .font(.body)
+                    ForEach(Array(activity.repositories.prefix(3))) { repository in
+                        if let url = safeRepositoryURL(repository) {
+                            Link(repository.nameWithOwner, destination: url)
+                        }
+                    }
+                    if activity.repositoryCount > 3 {
+                        Text("and \((activity.repositoryCount - 3).formatted()) other repositories")
+                    }
+                }
+                if activity.restrictedContributionsCount > 0 {
+                    Text("Private contribution details are hidden by GitHub.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 420, alignment: .topLeading)
+            .padding(.trailing, 30)
+
+            Rectangle()
+                .fill(Color.secondary.opacity(0.28))
+                .frame(width: 1)
+                .padding(.vertical, 4)
+
+            ZStack {
+                Canvas { context, size in
+                    let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                    var axes = Path()
+                    axes.move(to: CGPoint(x: center.x, y: 0))
+                    axes.addLine(to: CGPoint(x: center.x, y: size.height))
+                    axes.move(to: CGPoint(x: 0, y: center.y))
+                    axes.addLine(to: CGPoint(x: size.width, y: center.y))
+                    context.stroke(axes, with: .color(.green.opacity(0.8)), lineWidth: 2)
+
+                    var commits = Path()
+                    commits.move(to: CGPoint(x: 0, y: center.y - 7))
+                    commits.addLine(to: CGPoint(x: center.x, y: center.y - 4))
+                    commits.addLine(to: CGPoint(x: center.x, y: center.y + 4))
+                    commits.addLine(to: CGPoint(x: 0, y: center.y + 7))
+                    commits.closeSubpath()
+                    context.fill(commits, with: .color(.green.opacity(0.35)))
+                    context.stroke(commits, with: .color(.green), lineWidth: 2)
+
+                    for point in [CGPoint(x: 0, y: center.y), center] {
+                        let marker = Path(ellipseIn: CGRect(x: point.x - 6, y: point.y - 6, width: 12, height: 12))
+                        context.fill(marker, with: .color(Color(nsColor: .windowBackgroundColor)))
+                        context.stroke(marker, with: .color(.green), lineWidth: 3)
+                    }
+                }
+                VStack(spacing: 0) {
+                    metricLabel("Code review", activity.reviews, percent: percentage(activity.reviews, in: activity))
+                    Spacer()
+                    HStack {
+                        metricLabel("Commits", activity.commits, percent: percentage(activity.commits, in: activity))
+                        Spacer()
+                        metricLabel("Issues", activity.issues, percent: percentage(activity.issues, in: activity))
+                    }
+                    Spacer()
+                    metricLabel("Pull requests", activity.pullRequests, percent: percentage(activity.pullRequests, in: activity))
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 4)
+            }
+            .frame(maxWidth: .infinity, minHeight: 420)
+            .padding(.leading, 30)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Activity chart: \(percentage(activity.commits, in: activity)) percent commits, \(percentage(activity.reviews, in: activity)) percent code review, \(percentage(activity.issues, in: activity)) percent issues, \(percentage(activity.pullRequests, in: activity)) percent pull requests.")
+        }
+    }
+
+    private func metricLabel(_ title: String, _ count: Int, percent: Int) -> some View {
+        VStack(spacing: 3) {
+            Text("\(percent)% · \(count.formatted())")
+                .fontWeight(.medium)
+            Text(title)
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+    }
+
+    private func percentage(_ value: Int, in activity: GitHubContributionSummary) -> Int {
+        let total = activity.commits + activity.issues + activity.pullRequests + activity.reviews
+        return total == 0 ? 0 : Int((Double(value) / Double(total) * 100).rounded())
+    }
+
+    private func contributionColor(_ level: String) -> Color {
+        switch level {
+        case "FIRST_QUARTILE": .green.opacity(0.35)
+        case "SECOND_QUARTILE": .green.opacity(0.55)
+        case "THIRD_QUARTILE": .green.opacity(0.75)
+        case "FOURTH_QUARTILE": .green
+        default: Color(nsColor: .quaternaryLabelColor).opacity(0.24)
+        }
+    }
+
+    private func contributionColor(for level: Int) -> Color {
+        [contributionColor("NONE"), contributionColor("FIRST_QUARTILE"), contributionColor("SECOND_QUARTILE"), contributionColor("THIRD_QUARTILE"), contributionColor("FOURTH_QUARTILE")][level]
+    }
+
+    private func safeRepositoryURL(_ repository: GitHubContributionRepository) -> URL? {
+        guard let components = URLComponents(url: repository.url, resolvingAgainstBaseURL: false),
+              components.scheme == "https", components.host == "github.com",
+              components.user == nil, components.password == nil, components.port == nil,
+              components.path == "/\(repository.nameWithOwner)", components.query == nil,
+              components.fragment == nil else { return nil }
+        return repository.url
     }
 }
 
@@ -376,8 +658,12 @@ private struct AllProjectsView: View {
                             }
                             .padding(.top, 28)
 
-                            Label("\(store.filteredRepositories.count) repositories", systemImage: "shippingbox")
+                            Label("\(store.filteredRepositories.count) repositories · \(store.clonedRepositories.count) cloned", systemImage: "shippingbox")
                                 .foregroundStyle(.secondary)
+                            if let cloneError = store.cloneError {
+                                Label(cloneError, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.callout).foregroundStyle(.orange)
+                            }
                             if case let .stale(message) = store.connectionState {
                                 Label(message, systemImage: "exclamationmark.triangle")
                                     .font(.callout).foregroundStyle(.orange)
@@ -385,14 +671,19 @@ private struct AllProjectsView: View {
 
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("Repositories").font(.title2.bold())
-                                VStack(spacing: 0) {
+                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], alignment: .leading, spacing: 16) {
                                     ForEach(store.filteredRepositories) { repository in
-                                        RepositoryRow(repository: repository) { openRepository(repository) }
-                                        Rectangle()
-                                            .fill(Color.primary.opacity(0.08))
-                                            .frame(height: 1)
+                                        RepositoryRow(
+                                            repository: repository,
+                                            isCloned: store.isCloned(repository),
+                                            isCloning: store.cloningRepositoryIDs.contains(repository.id),
+                                            open: { openRepository(repository) },
+                                            clone: { chooseCloneDestination(for: repository) },
+                                            addFolder: { chooseExistingFolder(for: repository) }
+                                        )
                                     }
                                 }
+                                .frame(maxWidth: 1800, alignment: .leading)
                                 if store.filteredRepositories.isEmpty {
                                     ContentUnavailableView.search(text: store.searchText)
                                 }
@@ -407,6 +698,27 @@ private struct AllProjectsView: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .background(Color(nsColor: .underPageBackgroundColor))
+    }
+
+    private func chooseCloneDestination(for repository: GitHubRepository) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Clone Here"
+        panel.message = "Choose a parent folder for \(repository.name)."
+        guard panel.runModal() == .OK, let parent = panel.url else { return }
+        Task { await store.clone(repository, into: parent) }
+    }
+
+    private func chooseExistingFolder(for repository: GitHubRepository) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Add Folder"
+        panel.message = "Choose the existing clone of \(repository.fullName)."
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        Task { await store.addExistingClone(repository, at: folder) }
     }
 }
 
@@ -494,45 +806,77 @@ private struct ConnectionView: View {
 
 private struct RepositoryRow: View {
     let repository: GitHubRepository
+    let isCloned: Bool
+    let isCloning: Bool
     let open: () -> Void
+    let clone: () -> Void
+    let addFolder: () -> Void
 
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: 16) {
-                Image(systemName: "shippingbox.fill")
-                    .font(.title3)
-                    .foregroundStyle(.tint)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(repository.fullName).font(.headline)
+        VStack(alignment: .leading, spacing: 14) {
+            Button(action: open) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "shippingbox.fill")
+                            .font(.title3)
+                            .foregroundStyle(.tint)
+                        Text(repository.fullName).font(.headline).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                    }
                     Text(repository.summary ?? "No description")
-                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 5) {
-                    Text(repository.visibilityDescription).font(.callout)
-                    if let branch = repository.defaultBranch {
-                        Label(branch, systemImage: "arrow.branch")
-                            .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(repository.visibilityDescription).font(.callout)
+                        if let branch = repository.defaultBranch {
+                            Label(branch, systemImage: "arrow.branch")
+                                .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
                     }
                 }
-                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, minHeight: 106, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 14)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .disabled(!isCloned)
+            if isCloned {
+                Label("Cloned", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    Button(action: clone) {
+                        if isCloning { ProgressView().controlSize(.small) }
+                        else { Label("Clone", systemImage: "arrow.down.to.line") }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isCloning)
+                    .accessibilityIdentifier("clone-repository-\(repository.id)")
+                    Button(action: addFolder) {
+                        Label("Add Folder", systemImage: "folder.badge.plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isCloning)
+                    .accessibilityIdentifier("add-existing-repository-\(repository.id)")
+                }
+            }
         }
-        .buttonStyle(.plain)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.22)))
         .accessibilityIdentifier("repository-\(repository.id)")
     }
 }
 
 private struct ProjectWorkspaceView: View {
+    @Bindable var store: WorkspaceStore
     let repository: GitHubRepository
     let page: ProjectPage
     let openAllProjects: () -> Void
     let navigate: (ProjectPage) -> Void
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 22) {
             HStack(spacing: 7) {
                 Button("All Projects", action: openAllProjects)
@@ -553,7 +897,7 @@ private struct ProjectWorkspaceView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(repository.fullName).font(.largeTitle.bold())
-                    Text("GitHub · \(repository.visibilityDescription) · \(repository.cloneStateDescription)")
+                    Text("GitHub · \(repository.visibilityDescription) · Local clone")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -562,12 +906,15 @@ private struct ProjectWorkspaceView: View {
                 }
             }
 
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), alignment: .leading)], alignment: .leading, spacing: 12) {
                 ForEach(ProjectPage.allCases) { destination in
                     Button {
                         navigate(destination)
                     } label: {
                         Label(destination.rawValue, systemImage: destination.symbol)
+                            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
                     }
                     .buttonStyle(.bordered)
                     .tint(page == destination ? Color.accentColor : Color.secondary)
@@ -576,22 +923,534 @@ private struct ProjectWorkspaceView: View {
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
-                    Label(page.rawValue, systemImage: page.symbol).font(.title2.bold())
-                    Text(page == .overview
-                         ? (repository.summary ?? "This repository has no description.")
-                         : "Live \(page.rawValue.lowercased()) data is the next backend slice.")
-                        .foregroundStyle(.secondary)
-                    Label("Remote GitHub metadata", systemImage: "globe")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Label(page.rawValue, systemImage: page.symbol)
+                        .font(.title2.bold())
+                        .frame(maxWidth: .infinity, alignment: page == .overview ? .center : .leading)
+                    if store.projectHistoryLoading {
+                        ProgressView("Loading GitHub history…")
+                    } else if let error = store.projectHistoryError {
+                        ContentUnavailableView {
+                            Label("GitHub history unavailable", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text(error)
+                        } actions: {
+                            Button("Retry") { Task { await store.loadProjectHistory(repository: repository) } }
+                        }
+                    } else {
+                        historyContent
+                    }
                 }
                 .frame(maxWidth: .infinity, minHeight: 180, alignment: .leading)
                 .padding(8)
+                }
             }
-
-            Spacer()
-        }
         .padding(28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: 1600, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .task(id: repository.id) { await store.loadProjectHistory(repository: repository) }
+    }
+
+    @ViewBuilder
+    private var historyContent: some View {
+        switch page {
+        case .overview:
+            VStack(alignment: .center, spacing: 16) {
+                Text(repository.summary ?? "This repository has no description.")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Label("\(store.projectBranches.count) branches · \(store.projectCommits.count) recent commits · \(store.projectPullRequests.count) pull requests", systemImage: "globe")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
+        case .branches:
+            if store.projectBranches.isEmpty { ContentUnavailableView("No branches returned", systemImage: "arrow.branch") }
+            else {
+                branchGraph
+            }
+        case .commits:
+            if store.projectCommits.isEmpty { ContentUnavailableView("No commits returned", systemImage: "clock.arrow.circlepath") }
+            else {
+                commitTimeline
+            }
+        case .pullRequests:
+            if store.projectPullRequests.isEmpty { ContentUnavailableView("No pull requests returned", systemImage: "arrow.triangle.pull") }
+            else {
+                ForEach(store.projectPullRequests) { pullRequest in
+                    PullRequestCard(
+                        pullRequest: pullRequest,
+                        sourceURL: safeGitHubURL(pullRequest.htmlURL),
+                        repository: repository,
+                        store: store
+                    )
+                    .id("\(repository.id)-\(pullRequest.number)")
+                }
+            }
+        case .issues:
+            Text("Issue history is not loaded yet.").foregroundStyle(.secondary)
+        }
+    }
+
+    private var branchGraph: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Label("Remote branch graph", systemImage: "point.3.connected.trianglepath.dotted")
+                    .font(.headline)
+                Spacer()
+                Text("GitHub · branch heads").font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(store.projectBranches) { branch in
+                        let selected = store.selectedProjectBranch == branch.name
+                        Button {
+                            Task { await store.selectProjectBranch(branch.name, repository: repository) }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 7) {
+                                    Circle().fill(selected ? Color.accentColor : Color.secondary.opacity(0.5)).frame(width: 10, height: 10)
+                                    Text(branch.name).font(.callout.weight(.semibold)).lineLimit(1)
+                                }
+                                Rectangle().fill(selected ? Color.accentColor.opacity(0.75) : Color.secondary.opacity(0.3)).frame(height: 2)
+                                Text(branch.commit.sha.prefix(7)).font(.caption.monospaced()).foregroundStyle(.secondary)
+                                if branch.name == repository.defaultBranch { Text("DEFAULT").font(.system(size: 9, weight: .bold)).foregroundStyle(.tint) }
+                            }
+                            .frame(width: 150, alignment: .leading)
+                            .padding(12)
+                            .background(selected ? Color.accentColor.opacity(0.11) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.08), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("branch-graph-\(branch.name)")
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            if let branch = store.selectedProjectBranch {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.turn.down.right").foregroundStyle(.tint)
+                    Text("Commits on \(branch)").font(.subheadline.weight(.semibold))
+                    Text("· up to 100 recent").font(.caption).foregroundStyle(.secondary)
+                }
+                commitTimeline
+            }
+        }
+    }
+
+    private var commitTimeline: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(store.projectCommits.enumerated()), id: \.element.id) { index, commit in
+                VStack(alignment: .leading, spacing: 0) {
+                    Button { store.selectProjectCommit(commit.sha) } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(spacing: 0) {
+                                Circle().fill(store.selectedProjectCommitSHA == commit.sha ? Color.accentColor : Color.secondary.opacity(0.55))
+                                    .frame(width: 10, height: 10).padding(.top, 4)
+                                if index < store.projectCommits.count - 1 {
+                                    Rectangle().fill(Color.secondary.opacity(0.22)).frame(width: 2).frame(minHeight: 30)
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(commit.commit.message.components(separatedBy: "\n").first ?? commit.sha).lineLimit(1)
+                                Text("\(commit.sha.prefix(7)) · \(displayGitHubTimestamp(commit.commit.author?.date))")
+                                    .font(.caption.monospaced()).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if store.selectedProjectCommitSHA == commit.sha { Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint) }
+                        }
+                        .contentShape(Rectangle())
+                        .padding(.vertical, 5)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("commit-\(commit.sha)")
+                    if store.selectedProjectCommitSHA == commit.sha {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Divider().padding(.vertical, 4)
+                            Text("Commit message").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            MarkdownMessageView(markdown: commit.commit.message, id: "commit-\(commit.sha)")
+                            HStack {
+                                Text(commit.sha.prefix(12)).font(.caption.monospaced()).foregroundStyle(.secondary)
+                                Spacer()
+                                if let url = safeGitHubURL(commit.htmlURL) { Link("Open commit on GitHub", destination: url).accessibilityIdentifier("open-selected-commit") }
+                            }
+                        }
+                        .padding(14)
+                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+                        .accessibilityIdentifier("selected-commit-details")
+                    }
+                }
+            }
+        }
+    }
+
+    private func safeGitHubURL(_ url: URL) -> URL? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme == "https", components.host == "github.com",
+              components.user == nil, components.password == nil, components.port == nil,
+              components.query == nil, components.fragment == nil else { return nil }
+        return url
+    }
+}
+
+private struct PullRequestCard: View {
+    let pullRequest: GitHubPullRequest
+    let sourceURL: URL?
+    let repository: GitHubRepository
+    let store: WorkspaceStore
+    @State private var showsDetail = false
+    @State private var showsMergeConfirmation = false
+    @State private var responseText = ""
+
+    private var canWrite: Bool { pullRequest.state == "open" }
+
+    private var description: String {
+        (pullRequest.body?.isEmpty == false ? pullRequest.body : nil) ?? "No description provided."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("#\(pullRequest.number) \(pullRequest.title)")
+                        .font(.headline).fixedSize(horizontal: false, vertical: true)
+                    Text("\(pullRequest.mergedAt == nil ? pullRequest.state : "merged") · @\(pullRequest.user?.login ?? "unknown") · updated \(displayGitHubTimestamp(pullRequest.updatedAt))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 12)
+                if let sourceURL { Link("Open PR", destination: sourceURL) }
+            }
+            MarkdownMessageView(markdown: description, id: "pr-\(pullRequest.number)")
+            HStack {
+                Button(showsDetail ? "Hide files & discussion" : "Files & discussion") {
+                    showsDetail.toggle()
+                    if showsDetail { Task { await store.loadPullRequestDetail(pullRequest.number, repository: repository) } }
+                }
+                .accessibilityIdentifier("pull-request-detail-\(pullRequest.number)")
+                Spacer()
+                if canWrite {
+                    Button("Merge…", systemImage: "arrow.triangle.merge") { showsMergeConfirmation = true }
+                        .disabled(store.pullRequestActionInProgress)
+                        .accessibilityIdentifier("pull-request-merge-\(pullRequest.number)")
+                }
+            }
+            if showsDetail { detailContent }
+            if store.selectedPullRequestNumber == pullRequest.number, let message = store.pullRequestActionMessage {
+                Text(message).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("pull-request-action-message")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.08)))
+        .accessibilityIdentifier("pull-request-\(pullRequest.number)")
+        .confirmationDialog("Merge pull request #\(pullRequest.number)?", isPresented: $showsMergeConfirmation, titleVisibility: .visible) {
+            Button("Merge pull request", role: .destructive) {
+                Task { await store.mergePullRequest(repository: repository, number: pullRequest.number) }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will merge the pull request on GitHub using a merge commit.")
+        }
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        Divider()
+        if store.selectedPullRequestNumber != pullRequest.number {
+            Button("Load files and discussion") {
+                Task { await store.loadPullRequestDetail(pullRequest.number, repository: repository) }
+            }
+        } else if store.pullRequestDetailLoading {
+            ProgressView("Loading files and discussion…")
+        } else if let error = store.pullRequestDetailError {
+            Label(error, systemImage: "exclamationmark.triangle").font(.callout)
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Changed files (\(store.selectedPullRequestFiles.count))").font(.headline)
+                if store.selectedPullRequestFiles.isEmpty { Text("No changed files returned.").foregroundStyle(.secondary) }
+                ForEach(store.selectedPullRequestFiles) { file in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("\(file.filename) · \(file.status) · +\(file.additions) −\(file.deletions)")
+                            .font(.caption.weight(.semibold)).textSelection(.enabled)
+                        if let patch = file.patch {
+                            ScrollView(.horizontal) {
+                                Text(patch).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }.padding(8).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                        } else {
+                            Text("Diff unavailable for this file.").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(10).background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 8))
+                }
+
+                Text("Reviews").font(.headline)
+                ForEach(store.selectedPullRequestReviews) { review in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(review.state) · @\(review.user?.login ?? "unknown") · \(displayGitHubTimestamp(review.submittedAt))")
+                            .font(.caption.weight(.semibold))
+                        if let body = review.body, !body.isEmpty { Text(body).textSelection(.enabled) }
+                    }
+                }
+
+                Text("Inline review comments").font(.headline)
+                ForEach(store.selectedPullRequestReviewComments) { comment in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(comment.path ?? "Changed file")\(comment.line.map { ":\($0)" } ?? "") · @\(comment.user?.login ?? "unknown") · \(displayGitHubTimestamp(comment.createdAt))")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(comment.body).textSelection(.enabled)
+                    }
+                }
+
+                Text("Comments").font(.headline)
+                ForEach(store.selectedPullRequestComments) { comment in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("@\(comment.user?.login ?? "unknown") · \(displayGitHubTimestamp(comment.createdAt))")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(comment.body).textSelection(.enabled)
+                    }
+                }
+                if store.selectedPullRequestComments.isEmpty && store.selectedPullRequestReviews.isEmpty && store.selectedPullRequestReviewComments.isEmpty {
+                    Text("No comments or reviews yet.").foregroundStyle(.secondary)
+                }
+
+                if canWrite {
+                    Text("Comment or review").font(.headline)
+                    TextEditor(text: $responseText).font(.body).frame(minHeight: 70, maxHeight: 140)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
+                    HStack {
+                        Button("Comment") { submit(event: nil) }
+                        Button("Submit review") { submit(event: "COMMENT") }
+                        Button("Approve") { submit(event: "APPROVE") }
+                        Button("Request changes") { submit(event: "REQUEST_CHANGES") }
+                    }
+                    .disabled(responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.pullRequestActionInProgress)
+                }
+            }
+            .font(.callout)
+        }
+    }
+
+    private func submit(event: String?) {
+        let body = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return }
+        Task {
+            if let event {
+                await store.submitPullRequestReview(body, event: event, repository: repository, number: pullRequest.number)
+            } else {
+                await store.postPullRequestComment(body, repository: repository, number: pullRequest.number)
+            }
+            if store.pullRequestActionMessage == "Comment posted." || store.pullRequestActionMessage == "Review submitted." {
+                responseText = ""
+            }
+        }
+    }
+}
+
+private struct MarkdownMessageView: View {
+    let markdown: String
+    let id: String
+    @State private var isExpanded = true
+    @State private var showsMarkdownSource = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    Label(isExpanded ? "Minimize" : "Expand", systemImage: isExpanded ? "chevron.up" : "chevron.down")
+                }
+                .accessibilityIdentifier("message-toggle-\(id)")
+                Button("Preview") { showsMarkdownSource = false }
+                    .tint(showsMarkdownSource ? .secondary : .accentColor)
+                    .accessibilityIdentifier("message-preview-\(id)")
+                Button("Markdown") { showsMarkdownSource = true }
+                    .tint(showsMarkdownSource ? .accentColor : .secondary)
+                    .accessibilityIdentifier("message-markdown-\(id)")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            if isExpanded {
+                Group {
+                    if showsMarkdownSource {
+                        Text(markdown).font(.body.monospaced())
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("message-source-\(id)")
+                    } else {
+                        MarkdownPreviewView(markdown: markdown)
+                            .accessibilityIdentifier("message-preview-content-\(id)")
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.16), value: isExpanded)
+    }
+}
+
+func readableMarkdown(_ markdown: String) -> AttributedString {
+    (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
+}
+
+enum MarkdownBlockStyle: Equatable {
+    case heading(Int)
+    case paragraph
+    case unorderedItem
+    case orderedItem(String)
+    case quote
+    case code
+    case divider
+}
+
+struct MarkdownBlock: Equatable, Identifiable {
+    let id: Int
+    let text: String
+    let style: MarkdownBlockStyle
+}
+
+func markdownBlocks(_ markdown: String) -> [MarkdownBlock] {
+    var blocks: [MarkdownBlock] = []
+    var paragraph: [String] = []
+    var code: [String]?
+
+    func append(_ text: String, style: MarkdownBlockStyle) {
+        blocks.append(MarkdownBlock(id: blocks.count, text: text, style: style))
+    }
+
+    func flushParagraph() {
+        guard !paragraph.isEmpty else { return }
+        append(paragraph.joined(separator: " "), style: .paragraph)
+        paragraph.removeAll(keepingCapacity: true)
+    }
+
+    for line in markdown.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if let codeLines = code {
+            if trimmed.hasPrefix("```") {
+                append(codeLines.joined(separator: "\n"), style: .code)
+                code = nil
+            } else {
+                code?.append(line)
+            }
+            continue
+        }
+        if trimmed.hasPrefix("```") {
+            flushParagraph()
+            code = []
+            continue
+        }
+        if trimmed.isEmpty {
+            flushParagraph()
+            continue
+        }
+
+        let headingDepth = trimmed.prefix(while: { $0 == "#" }).count
+        if (1...6).contains(headingDepth), trimmed.dropFirst(headingDepth).first?.isWhitespace == true {
+            flushParagraph()
+            append(String(trimmed.dropFirst(headingDepth)).trimmingCharacters(in: .whitespaces), style: .heading(headingDepth))
+            continue
+        }
+        if ["---", "***", "___"].contains(trimmed) {
+            flushParagraph()
+            append("", style: .divider)
+            continue
+        }
+
+        let item = line.drop(while: \.isWhitespace)
+        if let marker = ["- ", "* ", "+ "].first(where: { item.hasPrefix($0) }) {
+            flushParagraph()
+            append(String(item.dropFirst(marker.count)), style: .unorderedItem)
+            continue
+        }
+        let digits = item.prefix(while: \.isNumber)
+        let suffix = item.dropFirst(digits.count)
+        if !digits.isEmpty, let delimiter = suffix.first, [".", ")"].contains(delimiter), suffix.dropFirst().first?.isWhitespace == true {
+            flushParagraph()
+            append(String(suffix.dropFirst(2)), style: .orderedItem("\(digits)\(delimiter)"))
+            continue
+        }
+        if trimmed.hasPrefix(">") {
+            flushParagraph()
+            append(String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces), style: .quote)
+            continue
+        }
+        paragraph.append(trimmed)
+    }
+
+    if let code { append(code.joined(separator: "\n"), style: .code) }
+    flushParagraph()
+    return blocks
+}
+
+private struct MarkdownPreviewView: View {
+    let markdown: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(markdownBlocks(markdown)) { block in
+                blockView(block)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.openURL, OpenURLAction { url in
+            guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
+                  components.host != nil, components.user == nil, components.password == nil else {
+                return .discarded
+            }
+            NSWorkspace.shared.open(url)
+            return .handled
+        })
+    }
+
+    @ViewBuilder
+    private func blockView(_ block: MarkdownBlock) -> some View {
+        switch block.style {
+        case let .heading(level):
+            Text(readableMarkdown(block.text))
+                .font(.system(size: [0: 23, 1: 23, 2: 20, 3: 18, 4: 16, 5: 15, 6: 14][level] ?? 14, weight: .semibold))
+                .fixedSize(horizontal: false, vertical: true)
+        case .paragraph:
+            Text(readableMarkdown(block.text))
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+        case .unorderedItem, .orderedItem:
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(block.style == .unorderedItem ? "•" : orderedMarker(block.style))
+                    .foregroundStyle(.secondary)
+                Text(readableMarkdown(block.text))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.leading, 12)
+        case .quote:
+            HStack(alignment: .top, spacing: 10) {
+                RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.5)).frame(width: 3)
+                Text(readableMarkdown(block.text))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, 8)
+        case .code:
+            Text(block.text)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        case .divider:
+            Divider()
+        }
+    }
+
+    private func orderedMarker(_ style: MarkdownBlockStyle) -> String {
+        guard case let .orderedItem(marker) = style else { return "" }
+        return marker
     }
 }
 

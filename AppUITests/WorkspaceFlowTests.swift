@@ -52,6 +52,13 @@ final class WorkspaceFlowTests: XCTestCase {
 
         activity.click()
         XCTAssertEqual(app.otherElements["workspace-header-title"].label, "Activity")
+        let yearSelector = app.descendants(matching: .any)["activity-year-selector"]
+        XCTAssertTrue(yearSelector.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Refresh contribution activity"].exists)
+        yearSelector.click()
+        let priorYear = app.menuItems["2025"]
+        XCTAssertTrue(priorYear.waitForExistence(timeout: 3))
+        priorYear.click()
         app.descendants(matching: .any)["nav-settings"].click()
         XCTAssertEqual(app.otherElements["workspace-header-title"].label, "Settings")
     }

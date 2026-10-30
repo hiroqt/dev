@@ -1,6 +1,6 @@
 # dev
 
-Native macOS workspace for reviewing GitHub projects. The app fetches repositories from GitHub after Device Flow sign-in. Add the registered GitHub App client ID to `Config/GitHub.xcconfig` and enable Device Flow in the App settings before signing in. The current client ID is intentionally blank; local clones and the remaining repository detail APIs are next implementation slices.
+Native macOS workspace for reviewing GitHub projects. The app fetches repositories from GitHub after Device Flow sign-in and supports comments, reviews, and confirmed merges on pull requests when the GitHub App has Pull requests: write permission. Add the registered GitHub App client ID to `Config/GitHub.xcconfig` and enable Device Flow in the App settings before signing in. The current client ID is intentionally blank.
 
 ## Open and run
 

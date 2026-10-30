@@ -2,7 +2,7 @@
 
 **Status:** Proposed architecture for the v1 product brief  
 **Platform:** Native macOS, Swift, SwiftUI; target the latest macOS release at implementation time  
-**Primary constraint:** A single-user desktop app with read-only GitHub access and user-directed local clones.
+**Primary constraint:** A single-user desktop app with narrowly scoped pull-request writes and user-directed local clones.
 
 ## 1. Context and system shape
 
@@ -33,7 +33,7 @@ The macOS app owns presentation, local clone orchestration, caching, and polling
 |---|---|---|
 | App shell and navigation | Native workspace shell with collapsible sidebar, cross-project views, project workspace destinations, and settings | Views bind to view models; no network/Git work on the main actor. One GitHub repository is one project; v1 has no extra folder/group layer. |
 | GitHub session | Device authorization, installed-account discovery, token refresh/revocation handling | Exposes current account, granted repository access, and an authenticated request capability; token values never leave the session module. |
-| GitHub REST adapter | Repository, branch/commit, PR/review/comment, issue, contributor, check/status, and deployment reads | Typed results, pagination, cancellation, conditional requests, and structured auth/rate-limit/network failures. |
+| GitHub API adapter | REST reads for repositories, project history, PR files/comments/reviews; explicit PR comment/review/merge operations; GraphQL contribution calendar and category totals | Typed results, pagination, cancellation, conditional requests, and structured auth/rate-limit/network failures. Only the PR actions listed here write. Contribution queries use the signed-in viewer; private/internal contribution data depends on GitHub's optional `read:user` scope. |
 | Repository catalog and activity | Merge fetched records into project summaries and recent feed | Source-linked records with fetched-at/stale state; deterministic mapping only. |
 | Local Git adapter | Clone, fetch, branch/commit graph, current branch, working-tree and worktree status | Takes a repository identity and user-selected destination; returns progress/status/errors. It performs no push or write to GitHub. |
 | Cache/preferences | Persist small app state and fetched metadata | Store accessible repository inventory, clone paths, refresh metadata and preferences; tokens only in Keychain. Cache can be cleared without deleting clones. |
@@ -47,7 +47,7 @@ Prefer Apple frameworks (`SwiftUI`, `URLSession`, `Security`/Keychain, `UserNoti
 
 - Register a **GitHub App** with Device Flow enabled. GitHub documents Device Flow as suitable for desktop applications. Use the native UI to show the user code, open GitHub’s verification page, and poll only at the interval GitHub returns.
 - Use a GitHub App user access token for API access. The app must be installed/enabled on the personal account and each organization whose repositories should appear. Access is the intersection of the user’s access, the app’s permissions, and the installation’s repository scope; organization policy/SSO can require additional approval.
-- Request only read permissions: repository metadata, contents (for HTTP Git clone/fetch), pull requests, issues, checks, commit statuses, and deployments as needed by the selected endpoints. Do not request write permissions in v1.
+- Request read permissions for repository metadata, contents (for HTTP Git clone/fetch), issues, checks, commit statuses, and deployments as needed. Pull requests permission must be write for comment/review/merge actions. No other write permission is needed for this feature.
 - Store access/refresh tokens in Keychain. Handle expiry, refresh where available, revocation, denied access, and reauthorization without logging credentials. If a token cannot be refreshed, explain the sign-in recovery path.
 - Do not place credentials in clone URLs, command-line arguments, shell command strings, Git remotes, crash reports, or logs. Provide an ephemeral Git credential mechanism and redact child-process output. Never persist an authenticated remote URL.
 
@@ -86,14 +86,14 @@ Primary guidance: [GitHub REST API best practices](https://docs.github.com/en/re
 - No automatic retry loop without a bound. Use server retry guidance, bounded backoff, and a visible manual refresh.
 - Use SwiftUI controls with keyboard support, VoiceOver labels, contrast-aware system appearances, and non-color status cues.
 - Open preview URLs only on user action and only for HTTP(S). Do not load arbitrary preview content in an embedded privileged web view.
-- Unit-test pure graph/feed mapping and permission/error mapping. Test adapters through their interfaces with deterministic fake HTTP/Git processes; include integration smoke checks against a test repository/account before release. Verify no write endpoints or Git push paths are reachable in the app.
+- Unit-test pure graph/feed mapping and permission/error mapping. Test adapters through deterministic fake HTTP/Git processes; include integration smoke checks against a test repository/account before release. Keep the write surface to PR issue comments, PR reviews, and PR merge; Git push and all other GitHub mutation paths remain unavailable.
 
 ## 8. Architecture decisions and tradeoffs
 
 | Decision | Choice | Reason / cost |
 |---|---|---|
 | Native UI | SwiftUI macOS app | Matches the user’s platform and provides native accessibility and notifications. |
-| GitHub auth | GitHub App Device Flow + user access token | Native desktop flow and fine-grained permissions; requires app registration and account/org installation. |
+| GitHub auth | GitHub App Device Flow + user access token | Native desktop flow and fine-grained permissions; PR write actions require Pull requests: write permission on the app and account/org installation. |
 | GitHub sync | Direct REST reads with polling | No backend/webhook service; slower than webhooks and constrained by rate limits. |
 | Local Git | System Git through a narrow process adapter | Avoids a Git library dependency; requires runtime availability checks and careful credential handoff. |
 | Local persistence | Keychain for credentials; small local metadata store for app state/cache | Separate secrets from ordinary cache; implementation can choose SwiftData or a small file-backed store after modeling the cache. |

@@ -19,7 +19,8 @@ flowchart TD
     J --> K[Search or select a repository project]
     K --> L[Project workspace: Overview, Branches, Commits, Pull Requests, Issues]
     L --> M[Inspect branch graph and local worktree state]
-    L --> N[Inspect PRs, checks, changed files, conversations]
+    L --> N[Inspect open/closed PRs, checks, files, conversations]
+    N --> N1[Comment, review, or confirm merge on open PR]
     L --> O[Inspect issues and contributors]
     L --> P[Open GitHub-reported preview]
     L --> Q[Ask for AI explanation]
@@ -41,7 +42,7 @@ flowchart TD
 
 ### 1. First launch and GitHub sign-in
 
-- Explain the app reads GitHub project data and can clone selected repositories locally. State that v1 does not write to GitHub.
+- Explain that GitHub project data is read and selected repositories can be cloned locally. PR comments, submitted reviews, and confirmed merges are the only GitHub write actions.
 - Start GitHub App Device Flow. Show the verification code, expiration, and a button to open GitHub’s verification page in the default browser.
 - Poll at GitHub’s instructed interval. Show pending, denied, expired, network-error, and success states distinctly.
 - Save tokens in Keychain. If access expires or is revoked, pause synchronization and offer sign-in again.
@@ -49,6 +50,7 @@ flowchart TD
 ### 2. Account and organization access
 
 - After authorization, load the user profile and the installations/repositories accessible to the app.
+- Show the authenticated GitHub login in the sidebar using the read-only GraphQL `viewer { login }` field.
 - Show personal repositories and repositories from organizations where the app is installed and approved.
 - If an expected organization is missing, explain that organization installation, SSO, or admin approval may be required and link to GitHub’s relevant settings. Never imply sign-in alone grants access to every repository.
 - Allow refresh of repository discovery.
@@ -82,10 +84,15 @@ flowchart TD
 
 ### 6. Pull requests, issues, commits, and contributors
 
-- Selecting a PR opens its state, title, author, reviewers, labels, checks, changed files, description, discussion/comments, and merge time.
+- Selecting an open or closed PR opens its state, title, author, reviewers, labels, checks, changed files and available patches, description, review history, conversation comments, and merge time. On open PRs the user can comment, submit a comment/approve/request-changes review, or merge after confirmation. Closed PRs stay read-only.
+- Merge uses GitHub's merge-commit strategy and requires an explicit confirmation. GitHub remains responsible for branch protections and mergeability; failures are shown without claiming the PR was merged.
+- The contribution graph uses GitHub's calendar counts. PR comments and merges can be shown as PR activity without being added as contribution counts.
 - Selecting an issue shows state, labels, assignee, author, and activity.
 - Selecting a contributor shows available profile and repository activity links; do not claim all contribution history if API access is incomplete.
 - Selecting a commit opens its details and GitHub page; local graph selection may also focus the commit in the branch graph.
+- Show the selected commit message and source link directly below that commit. Show each pull request's description on its own card. Format visible GitHub timestamps as `MMM d, yyyy, h:mm a` in the user's local time zone.
+- Render pull request Markdown descriptions in a readable Preview mode and provide a Markdown source mode on each card.
+- Use an adaptive repository card grid that adds columns as the content area grows and fills the available width in fullscreen.
 - Every summary or count links to the source records from which it was derived.
 
 ### 7. Preview links
