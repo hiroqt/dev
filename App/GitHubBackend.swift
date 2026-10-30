@@ -285,7 +285,14 @@ protocol GitHubProjectHistoryProviding: Sendable {
     func branches(repository: GitHubRepository, accessToken: String) async throws -> [GitHubBranch]
     func commits(repository: GitHubRepository, branch: String, accessToken: String) async throws -> [GitHubCommit]
     func pullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest]
+    func recentPullRequests(repository: GitHubRepository, limit: Int, accessToken: String) async throws -> [GitHubPullRequest]
     func openPullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest]
+}
+
+extension GitHubProjectHistoryProviding {
+    func recentPullRequests(repository: GitHubRepository, limit: Int, accessToken: String) async throws -> [GitHubPullRequest] {
+        Array(try await pullRequests(repository: repository, accessToken: accessToken).sorted { $0.updatedAt > $1.updatedAt }.prefix(max(0, limit)))
+    }
 }
 
 protocol GitHubPullRequestManaging: Sendable {
@@ -362,6 +369,19 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
 
     func pullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest] {
         try await list(GitHubPullRequest.self, repository: repository, endpoint: "pulls", accessToken: accessToken, query: [URLQueryItem(name: "state", value: "all")])
+    }
+
+    func recentPullRequests(repository: GitHubRepository, limit: Int, accessToken: String) async throws -> [GitHubPullRequest] {
+        guard (1...100).contains(limit) else { throw GitHubBackendError.invalidResponse }
+        return try await list(
+            GitHubPullRequest.self,
+            repository: repository,
+            endpoint: "pulls",
+            accessToken: accessToken,
+            query: [URLQueryItem(name: "state", value: "all"), URLQueryItem(name: "sort", value: "updated"), URLQueryItem(name: "direction", value: "desc")],
+            maxPages: 1,
+            pageSize: limit
+        )
     }
 
     func openPullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest] {
@@ -552,7 +572,8 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
         endpoint: String,
         accessToken: String,
         query: [URLQueryItem] = [],
-        maxPages: Int = .max
+        maxPages: Int = .max,
+        pageSize: Int = 100
     ) async throws -> [T] {
         guard !accessToken.isEmpty else { throw GitHubBackendError.unauthorized }
         let parts = repository.fullName.split(separator: "/")
@@ -569,7 +590,7 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
             try Task.checkCancellation()
             var components = URLComponents(string: "https://api.github.com/repos/\(owner)/\(name)/\(endpoint)")!
             components.queryItems = query + [
-                URLQueryItem(name: "per_page", value: "100"),
+                URLQueryItem(name: "per_page", value: String(pageSize)),
                 URLQueryItem(name: "page", value: String(page))
             ]
             guard let url = components.url else { throw GitHubBackendError.invalidResponse }
@@ -583,7 +604,7 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
             try validate(response)
             guard let items = try? JSONDecoder().decode([T].self, from: response.data) else { throw GitHubBackendError.invalidResponse }
             results.append(contentsOf: items)
-            guard items.count == 100 else { return results }
+            guard items.count == pageSize else { return results }
         }
         return results
     }
@@ -675,18 +696,22 @@ private struct ViewerLoginResponse: Decodable {
 
 func displayGitHubTimestamp(_ value: String?) -> String {
     guard let value else { return "Date unavailable" }
-    let isoFormatter = ISO8601DateFormatter()
-    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    let date = isoFormatter.date(from: value) ?? {
-        isoFormatter.formatOptions = [.withInternetDateTime]
-        return isoFormatter.date(from: value)
-    }()
+    let date = parseGitHubDate(value)
     guard let date else { return "Date unavailable" }
     let displayFormatter = DateFormatter()
     displayFormatter.locale = Locale(identifier: "en_US_POSIX")
     displayFormatter.timeZone = .current
     displayFormatter.dateFormat = "MMM d, yyyy, h:mm a"
     return displayFormatter.string(from: date)
+}
+
+func parseGitHubDate(_ value: String) -> Date? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.date(from: value) ?? {
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }()
 }
 
 struct GitHubToken: Codable, Sendable {
