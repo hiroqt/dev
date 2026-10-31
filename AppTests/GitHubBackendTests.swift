@@ -189,6 +189,101 @@ struct GitHubBackendTests {
         #expect(await transport.requests().count == 1)
     }
 
+    @Test func publicRepositoryURLFindsSkillsWithoutCodeSearchAuthentication() async throws {
+        let tree = #"{"truncated":false,"tree":[{"path":"skills/design/SKILL.md","mode":"100644","type":"blob","size":20,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"path":"skills/dev/SKILL.md","mode":"100644","type":"blob","size":20,"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},{"path":"skills/.private/SKILL.md","mode":"100644","type":"blob","size":20,"sha":"cccccccccccccccccccccccccccccccccccccccc"},{"path":"skills/link/SKILL.md","mode":"120000","type":"blob","size":20,"sha":"dddddddddddddddddddddddddddddddddddddddd"}]}"#
+        let transport = StubTransport([
+            .init(statusCode: 200, data: Data(#"{"default_branch":"main"}"#.utf8), headers: [:]),
+            .init(statusCode: 200, data: Data(tree.utf8), headers: [:])
+        ])
+        let api = GitHubSkillSearchAPI(transport: transport)
+
+        let source = try #require(GitHubSkillSearchAPI.candidate(from: "https://github.com/mattpocock/skills.git"))
+        #expect(source.repository == "mattpocock/skills")
+        #expect(source.path == nil)
+        let candidates = try await api.repositorySkills(try #require(source.repository))
+
+        #expect(candidates.map(\.name) == ["design", "dev"])
+        #expect(candidates.allSatisfy { $0.ref == "main" })
+        let requests = await transport.requests()
+        #expect(requests.count == 2)
+        #expect(requests.allSatisfy { $0.httpMethod == "GET" && $0.value(forHTTPHeaderField: "Authorization") == nil })
+        #expect(requests[0].url?.path == "/repos/mattpocock/skills")
+        #expect(requests[1].url?.path == "/repos/mattpocock/skills/git/trees/main")
+    }
+
+    @Test func parsesSkillAndPluginInstallCommandsWithoutExecutingThem() throws {
+        let skillsCommand = try #require(SkillInstallCommand.parse("npx skills add mattpocock/skills --skill to-spec"))
+        #expect(skillsCommand.tool == "Skills CLI")
+        #expect(skillsCommand.repository == "mattpocock/skills")
+        #expect(skillsCommand.skillName == "to-spec")
+        let quoted = try #require(SkillInstallCommand.parse("npx skills add 'mattpocock/skills' --skill 'to-spec'"))
+        #expect(quoted.repository == "mattpocock/skills")
+        #expect(quoted.skillName == "to-spec")
+
+        let codexCommand = try #require(SkillInstallCommand.parse("""
+        codex plugin marketplace add mattpocock/skills
+        codex plugin add mattpocock-skills@mattpocock
+        """))
+        #expect(codexCommand.tool == "Codex")
+        #expect(codexCommand.repository == "mattpocock/skills")
+        #expect(codexCommand.pluginName == "mattpocock-skills")
+
+        let geminiCommand = try #require(SkillInstallCommand.parse("gemini extensions install https://github.com/mattpocock/skills.git"))
+        #expect(geminiCommand.tool == "Gemini CLI")
+        #expect(geminiCommand.repository == "mattpocock/skills")
+
+        let copilotCommand = try #require(SkillInstallCommand.parse("copilot plugin install owner/repo:plugins/release"))
+        #expect(copilotCommand.tool == "Copilot CLI")
+        #expect(copilotCommand.repository == "owner/repo")
+        #expect(copilotCommand.sourcePath == "plugins/release")
+
+        let copilotMarketplace = try #require(SkillInstallCommand.parse("""
+        copilot plugin marketplace add mattpocock/skills
+        copilot plugin install mattpocock-skills@mattpocock
+        """))
+        #expect(copilotMarketplace.repository == "mattpocock/skills")
+        #expect(copilotMarketplace.pluginName == "mattpocock-skills")
+    }
+
+    @Test func pluginMarketplaceSelectsOnlySkillsFromThatPluginSource() async throws {
+        let marketplace = #"{"plugins":[{"name":"mattpocock-skills","source":"./plugins/matt"}]}"#
+        let tree = #"{"truncated":false,"tree":[{"path":".claude-plugin/marketplace.json","mode":"100644","type":"blob","size":\#(marketplace.utf8.count),"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"path":"plugins/matt/skills/to-spec/SKILL.md","mode":"100644","type":"blob","size":20,"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},{"path":"plugins/other/skills/other/SKILL.md","mode":"100644","type":"blob","size":20,"sha":"cccccccccccccccccccccccccccccccccccccccc"}]}"#
+        let transport = StubTransport([
+            .init(statusCode: 200, data: Data(#"{"default_branch":"main"}"#.utf8), headers: [:]),
+            .init(statusCode: 200, data: Data(tree.utf8), headers: [:]),
+            .init(statusCode: 200, data: Data(#"{"encoding":"base64","content":"\#(Data(marketplace.utf8).base64EncodedString())"}"#.utf8), headers: [:])
+        ])
+        let candidates = try await GitHubSkillSearchAPI(transport: transport)
+            .repositorySkills("mattpocock/skills", pluginName: "mattpocock-skills")
+
+        #expect(candidates.map(\.name) == ["to-spec"])
+        #expect(candidates.first?.path == "plugins/matt/skills/to-spec/SKILL.md")
+        #expect(await transport.requests().allSatisfy { $0.httpMethod == "GET" && $0.value(forHTTPHeaderField: "Authorization") == nil })
+    }
+
+    @Test func importedGitHubSkillKeepsTheSubmittedInstallCommand() async throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let folder = temporaryRoot.appending(path: "skill", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try "---\nname: to-spec\n---\nWrite a spec.".write(to: folder.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
+        let command = "codex plugin add mattpocock-skills@mattpocock"
+        let library = SkillsLibraryRepository(root: temporaryRoot.appending(path: "library", directoryHint: .isDirectory))
+
+        let entry = try await library.importGitHubFolder(
+            folder,
+            repository: "mattpocock/skills",
+            path: "plugins/matt/skills/to-spec/SKILL.md",
+            ref: "main",
+            url: try #require(URL(string: "https://github.com/mattpocock/skills/blob/main/plugins/matt/skills/to-spec/SKILL.md")),
+            installCommand: command,
+            installCommandSource: "Provided for Codex"
+        )
+
+        #expect(entry.installCommand == command)
+        #expect(entry.installCommandSource == "Provided for Codex")
+    }
+
     @Test func localSkillImportRejectsFilesAboveTheCopyLimit() async throws {
         let temporaryRoot = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         let skillFolder = temporaryRoot.appending(path: "large-skill", directoryHint: .isDirectory)

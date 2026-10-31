@@ -122,30 +122,41 @@ struct SkillsLibraryView: View {
                 .controlSize(.large)
                 .accessibilityIdentifier("skills-add-folder")
                 Spacer()
-                Text("\(filtered.count) skills")
+                Text("\(filtered.count) saved skills")
                     .workspaceFont(.caption)
                     .foregroundStyle(.secondary)
             }
-            HStack(spacing: 10) {
-                TextField("GitHub URL or search term", text: $sourceURL)
-                    .textFieldStyle(.roundedBorder)
-                    .workspaceFont(.body)
-                    .padding(.vertical, 5)
-                    .onSubmit { submitSource() }
-                    .accessibilityIdentifier("skills-github-query")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Paste an install command")
+                    .workspaceFont(.subheadline, weight: .medium)
+                    .foregroundStyle(.secondary)
+                TextEditor(text: $sourceURL)
+                    .font(.system(.body, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(7)
+                    .frame(minHeight: 78, maxHeight: 110)
+                    .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 9))
+                    .accessibilityLabel("Skill installation command")
+                    .accessibilityIdentifier("skills-install-command")
+                Text("Codex, Claude Code, Copilot, Gemini, or npx skills commands. Commands are read as text and never run.")
+                    .workspaceFont(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Spacer()
                 Button {
                     submitSource()
                 } label: {
-                    Label("Search", systemImage: "magnifyingglass")
+                    Label(library.isSearching ? "Reading" : "Find Skills", systemImage: library.isSearching ? "ellipsis.circle" : "magnifyingglass")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(library.isSearching || sourceURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .help("Search GitHub or add a GitHub URL")
-                .accessibilityIdentifier("skills-github-search")
+                    .help("Read the command and find its skill files on GitHub")
+                    .accessibilityIdentifier("skills-resolve-command")
+                }
             }
             if !library.candidates.isEmpty {
-                Text("GitHub candidates")
+                Text("GitHub results · \(library.candidates.count)")
                     .workspaceFont(size: 13, weight: .semibold)
                     .foregroundStyle(.secondary)
                 ScrollView {
@@ -172,6 +183,7 @@ struct SkillsLibraryView: View {
             }
             if let error = library.error {
                 Text(error).workspaceFont(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("skills-install-error")
             }
             List(filtered, selection: Binding(
                 get: { selected?.id },
@@ -224,13 +236,7 @@ struct SkillsLibraryView: View {
 
     private func submitSource() {
         let value = sourceURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            if value.lowercased().hasPrefix("https://github.com/") {
-                await library.addGitHubURL(value, accessToken: store.githubAccessToken)
-            } else {
-                await store.searchGitHubSkills(value)
-            }
-        }
+        Task { await library.resolveInstallCommand(value, accessToken: store.githubAccessToken) }
     }
 }
 
