@@ -39,3 +39,10 @@ Floating buttons now switch content inside the notch: summary, searchable Skills
 
 ### Idle notch width regression — 2026-10-31
 Retained hidden tool content imposed a 497-point layout on the idle surface despite the NSPanel being correctly sized to 275 points on the connected MacBook. The root now uses the panel viewport and independently constrains both retained expanded content and the idle button. Sessions remain mounted. The physical-notch UI test reproduced the width failure before the fix and now passes measured-notch width checks before expansion and after minimizing, plus tool switching/reopening. Arm64 build passes. A fresh cropped MacBook-display capture confirms compact width and visible idle text; temporary geometry instrumentation was removed. Full app suite was not rerun for this layout fix.
+
+### Native macOS app icon — 2026-11-01
+
+- Added the supplied dev artwork as `App/Assets.xcassets/AppIcon.appiconset`, with transparent exterior corners and all ten macOS 1x/2x representations (16–1024 pixels). Both Debug and Release set `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon`.
+- Verified every PNG dimension, alpha channel, transparent corner, and opaque center with AppKit assertions; reviewed the 128-pixel preview. The arm64 build passed with `-skipPackagePluginValidation ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`; the built app declares `CFBundleIconFile`/`CFBundleIconName` and includes `Resources/AppIcon.icns`.
+- Full `xcodebuild test` with the same arm64/plugin flags ran: 55 unit tests passed (19 XCTest and 36 Swift Testing); four of seven UI flows passed. Provider usage, Activity/Settings navigation, and unconfigured-session flows failed with four assertions across three flows. Logs: `/tmp/dev-appicon-test.log`; build: `/tmp/dev-appicon-build.log`. These flows do not test app icons. Finder/Dock presentation and installation have not been checked.
+- `git diff --check` and project plist validation passed. `python3 Scripts/docsec.py` remains incomplete: 22 criteria, End-to-end pending, and an existing AC-18 text mismatch with the PRD. No product acceptance criteria were marked complete by this asset change.
