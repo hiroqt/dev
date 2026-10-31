@@ -38,8 +38,17 @@ flowchart TD
     J --> L1[Add Folder from Local Projects]
     L1 --> L2[Choose any folder in native picker]
     L2 --> L3[Save scoped bookmark; open local Overview or Files]
+    J --> S1[Open Skills library]
+    S1 --> S2[Search saved skills offline or submit a GitHub code search]
+    S1 --> S3[Scan a clone, select a folder, or add a GitHub URL]
+    S3 --> S4[Copy regular skill files locally; skip hidden files and symlinks]
+    S4 --> S5[Preview offline; copy attributed install command if available]
     J --> Z[Poll while app runs; show changed PRs and notifications]
     Z --> J
+    J --> Q[Open Quick Summary from notch handle or menu bar]
+    Q --> Q1[Show open PR count and three recent PRs]
+    Q --> Q2[Open Workspace, Skills, Terminal, or Codex]
+    Q --> Q3[Animate new PR and completed shell command events]
 ```
 
 ## Detailed screens and actions
@@ -70,6 +79,7 @@ flowchart TD
 ### 3. Projects dashboard
 
 - Use a collapsible workspace sidebar with **All Projects**, **Activity**, a **Projects** section containing one row per GitHub repository, and **Settings**. Local Projects is a separate section for explicitly selected folders; entries remain distinct from GitHub repositories.
+- Add a top-level **Skills** destination. The library searches its local catalog offline, offers a separate user-submitted GitHub code search, and lets the user add a local skill folder or GitHub URL. Each saved item shows description, tags, category, source and stored location; selecting it opens the offline copy.
 - Selecting a repository opens its project workspace. Keep long branch and commit lists inside that workspace so the sidebar remains scannable.
 - Drag the divider at the tool panel's left edge to adjust its width; width is remembered across launches and clamped to the current window while leaving at least 320 points for the workspace. Below the minimum side-by-side width, the panel uses the full content area.
 - Hover a project row to edit its sidebar name/color/icon, pin it, or open its settings menu; right-click offers the same actions. Drag a row onto another in its section to reorder; pinning moves it to the top of that section. Name, color, and icon affect only the sidebar. Open With lists installed coding IDEs; Show in Finder reveals the selected folder and the path item copies its full path. Remove from Sidebar removes only the app entry and preserves local files and GitHub state.
@@ -149,4 +159,17 @@ flowchart TD
 - Choose **Add Folder…** in the Local Projects sidebar section and select any folder in the native picker. No automatic scanning occurs.
 - The folder is saved as a security-scoped bookmark. **Remove from dev** removes only its sidebar entry and never deletes disk contents.
 - Local Overview shows the folder path and top-level item count. Files lists visible names and supports folder navigation. Selecting a text file opens a bounded, read-only preview; Markdown uses the same Preview/Markdown/Expand controls as commit messages. Hidden files and symlinks are not opened, and files over 2 MB or non-UTF-8/binary files show a clear unavailable message. The separate user-launched terminal can run commands with the app user's normal macOS permissions, with the selected project as its starting directory.
+
+### Quick Summary
+
+- Quick Summary is shared between a SwiftUI menu bar popover and a notch panel. The collapsed panel is centered and flush with the display's top edge, with side wings outside the measured camera cutout. Clicking it expands downward into a themed cap with a camera-safe strip and curved shoulders joined to the screen top; the minimize control returns it to idle. Two floating pills beneath it select the summary, searchable Skills preview, embedded Terminal, or Codex within the notch. Terminal sessions persist across switching and collapse; Open Workspace explicitly opens the full app. Click-away and Escape collapse it. Screen changes refresh notch measurements and safe sizing. The popover shows up to three recent PRs, open-PR total, four shortcuts, and disabled AI/Tasks placeholders. New/updated PRs and terminal command completions animate in without including terminal output, respecting Reduce Motion. Polling defaults to one minute, can be set to five or fifteen minutes, and backs off after failed refreshes. macOS notifications are opt-in through Settings and the OS permission prompt.
+
+### Skills library
+
+- After a clone is registered, scan it for `SKILL.md` and Markdown links advertising skill sources. Repeat only when the user requests a scan. Offer discovered links as candidates and never follow them recursively. Also allow selecting a local folder or adding a GitHub source URL.
+- A submitted GitHub search uses the signed-in token to query code for the user's terms and `SKILL.md`, then shows results with GitHub source links. Do not run an online search as the user types.
+- On import, keep the source repository/path/ref and store regular files in Application Support for offline preview. Skip hidden paths and symlinks; cap each import at 100 files, 2 MB per file, and 10 MB total. Show a clear state when a source goes missing and keep the cached files. Refresh copies newer source contents while retaining user-edited category.
+- Derive a category suggestion from name, description, and tags using local rules; let the user choose a different category. Search locally by name, purpose/description, and tags, with category filtering.
+- Show source-documented install commands or derive `npx skills add <owner>/<repo> --skill <skill>` for a GitHub source when the standard `skills` CLI applies. Attribute and copy the command; never run it. Treat all skill text and commands as untrusted, inert display content.
+- Skills copies do not sync and are never sent to AI. Ordinary Local Projects file previews remain memory-only. Temporary terminal activity files contain only an executable label and exit state, never full arguments or shell output.
 - Local and GitHub projects remain distinct, even when a local repository has a matching GitHub remote.
