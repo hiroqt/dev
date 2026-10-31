@@ -34,6 +34,68 @@ struct SkillCandidate: Identifiable, Hashable, Sendable {
     let repository: String?
     let path: String?
     let ref: String?
+    var installCommand: String? = nil
+    var installCommandSource: String? = nil
+}
+
+struct SkillInstallCommand: Sendable {
+    let tool: String
+    let repository: String
+    let skillName: String?
+    let pluginName: String?
+    let sourcePath: String?
+    let original: String
+
+    static func parse(_ value: String) -> SkillInstallCommand? {
+        let lines = value.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return nil }
+        let words = lines.flatMap { $0.split(whereSeparator: \.isWhitespace).map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: "'\"")) } }
+        guard !words.contains(where: { $0.contains(";") || $0.contains("|") || $0.contains("&") || $0.contains("$ (") || $0.contains("$(") || $0.contains("`") }) else { return nil }
+        func github(_ value: String) -> String? {
+            let normalized = value.hasPrefix("https://github.com/") ? value : "https://github.com/\(value)"
+            return GitHubSkillSearchAPI.candidate(from: normalized)?.repository
+        }
+        var repository: String?
+        var skillName: String?
+        var pluginName: String?
+        var sourcePath: String?
+        let tool: String
+        if words.first == "npx", words.contains(where: { $0 == "skills" || $0.hasPrefix("skills@") }), let add = words.firstIndex(of: "add"), words.indices.contains(add + 1) {
+            tool = "Skills CLI"
+            let spec = words[add + 1]
+            repository = github(spec)
+            if let skill = words.firstIndex(of: "--skill"), words.indices.contains(skill + 1) { skillName = words[skill + 1] }
+        } else if words.first == "codex", let marketplace = words.firstIndex(of: "marketplace"), let marketplaceAdd = words[(marketplace + 1)...].firstIndex(of: "add"), words.indices.contains(marketplaceAdd + 1) {
+            tool = "Codex"
+            repository = github(words[marketplaceAdd + 1])
+            if let pluginAdd = words[(marketplaceAdd + 2)...].firstIndex(of: "add"), words.indices.contains(pluginAdd + 1) {
+                pluginName = String(words[pluginAdd + 1].split(separator: "@").first ?? "")
+            }
+        } else if words.first == "claude", words.contains("marketplace"), let marketplace = words.firstIndex(of: "add"), words.indices.contains(marketplace + 1) {
+            tool = "Claude Code"
+            repository = github(words[marketplace + 1])
+            if let install = words.firstIndex(of: "install"), words.indices.contains(install + 1) {
+                pluginName = String(words[install + 1].split(separator: "@").first ?? "")
+            }
+        } else if words.first == "copilot", let marketplace = words.firstIndex(of: "marketplace"), let marketplaceAdd = words[(marketplace + 1)...].firstIndex(of: "add"), words.indices.contains(marketplaceAdd + 1) {
+            tool = "Copilot CLI"
+            repository = github(words[marketplaceAdd + 1])
+            if let install = words.firstIndex(of: "install"), words.indices.contains(install + 1) {
+                pluginName = String(words[install + 1].split(separator: "@").first ?? "")
+            }
+        } else if words.first == "copilot", let install = words.firstIndex(of: "install"), words.indices.contains(install + 1) {
+            tool = "Copilot CLI"
+            let spec = words[install + 1]
+            let components = spec.split(separator: ":", maxSplits: 1).map(String.init)
+            repository = github(components[0])
+            if components.count > 1 { sourcePath = components[1] }
+        } else if words.first == "gemini", let install = words.firstIndex(of: "install"), words.indices.contains(install + 1) {
+            tool = "Gemini CLI"
+            repository = github(words[install + 1])
+        } else { return nil }
+        guard let repository else { return nil }
+        return SkillInstallCommand(tool: tool, repository: repository, skillName: skillName, pluginName: pluginName, sourcePath: sourcePath, original: value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
 }
 
 struct SkillMetadata: Sendable {
@@ -215,10 +277,10 @@ actor SkillsLibraryRepository {
         return try saveFolder(folder, sourceKey: sourceKey, source: folder.path, sourceURL: nil, sourceFolder: folder.path, installSource: nil)
     }
 
-    func importGitHubFolder(_ folder: URL, repository: String, path: String, ref: String, url: URL) throws -> SkillEntry {
+    func importGitHubFolder(_ folder: URL, repository: String, path: String, ref: String, url: URL, installCommand: String? = nil, installCommandSource: String? = nil) throws -> SkillEntry {
         let key = "repo:\(repository.lowercased()):\(path.lowercased())"
         let skillName = path.split(separator: "/").dropLast().last.map(String.init) ?? repository
-        return try saveFolder(folder, sourceKey: key, source: "\(repository)/\(path)", sourceURL: url.absoluteString, sourceFolder: nil, installSource: repository, installSkillName: skillName)
+        return try saveFolder(folder, sourceKey: key, source: "\(repository)/\(path)", sourceURL: url.absoluteString, sourceFolder: nil, installSource: repository, installSkillName: skillName, installCommandOverride: installCommand, installCommandOverrideSource: installCommandSource)
     }
 
     func markUnavailable(_ sourceKey: String) throws {
@@ -240,7 +302,7 @@ actor SkillsLibraryRepository {
         try persist()
     }
 
-    private func saveFolder(_ sourceFolder: URL, sourceKey: String, source: String, sourceURL: String?, sourceFolder storedSource: String?, installSource: String?, installSkillName: String? = nil) throws -> SkillEntry {
+    private func saveFolder(_ sourceFolder: URL, sourceKey: String, source: String, sourceURL: String?, sourceFolder storedSource: String?, installSource: String?, installSkillName: String? = nil, installCommandOverride: String? = nil, installCommandOverrideSource: String? = nil) throws -> SkillEntry {
         let files = try regularFiles(in: sourceFolder)
         guard !files.isEmpty else { throw SkillsLibraryError.emptySkill }
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
@@ -274,7 +336,7 @@ actor SkillsLibraryRepository {
         let skillMarkdown = files.first(where: { $0.1.caseInsensitiveCompare("SKILL.md") == .orderedSame })?.0
         let markdown = skillMarkdown.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
         let metadata = SkillMetadata.parse(markdown, fallbackName: sourceFolder.lastPathComponent)
-        let command = metadata.documentedCommand ?? installSource.map {
+        let command = installCommandOverride ?? metadata.documentedCommand ?? installSource.map {
             "npx skills add \(Self.shellQuote($0)) --skill \(Self.shellQuote(installSkillName ?? sourceFolder.lastPathComponent))"
         }
         let entry = SkillEntry(
@@ -291,7 +353,7 @@ actor SkillsLibraryRepository {
             files: files.map(\.1).sorted(),
             state: .available,
             installCommand: command,
-            installCommandSource: metadata.documentedCommand == nil ? (installSource == nil ? nil : "Derived from the Skills CLI") : "Documented in SKILL.md"
+            installCommandSource: installCommandOverrideSource ?? (metadata.documentedCommand == nil ? (installSource == nil ? nil : "Derived from the Skills CLI") : "Documented in SKILL.md")
         )
         if let index = entries.firstIndex(where: { $0.sourceKey == sourceKey }) { entries[index] = entry }
         else { entries.append(entry) }
@@ -370,6 +432,7 @@ final class SkillsLibraryStore {
     func searchGitHub(_ query: String, accessToken: String?) async {
         isSearching = true
         error = nil
+        candidates = []
         defer { isSearching = false }
         do { candidates = try await GitHubSkillSearchAPI().search(query, accessToken: accessToken) }
         catch { self.error = error.localizedDescription }
@@ -385,8 +448,9 @@ final class SkillsLibraryStore {
         do {
             let downloaded = try await GitHubSkillSearchAPI().download(candidate, accessToken: accessToken)
             defer { try? FileManager.default.removeItem(at: downloaded.folder.deletingLastPathComponent()) }
-            _ = try await repository.importGitHubFolder(downloaded.folder, repository: repositoryName, path: downloaded.skillPath, ref: ref, url: sourceURL)
+            _ = try await repository.importGitHubFolder(downloaded.folder, repository: repositoryName, path: downloaded.skillPath, ref: ref, url: sourceURL, installCommand: candidate.installCommand, installCommandSource: candidate.installCommandSource)
             entries = await repository.load()
+            candidates.removeAll { $0.id == candidate.id }
         } catch { self.error = error.localizedDescription }
     }
 
@@ -400,10 +464,39 @@ final class SkillsLibraryStore {
         } else if let repository = candidate.repository {
             isSearching = true
             error = nil
+            candidates = []
             defer { isSearching = false }
-            do { candidates = try await GitHubSkillSearchAPI().search("repo:\(repository)", accessToken: accessToken) }
+            do {
+                candidates = try await GitHubSkillSearchAPI().repositorySkills(repository, ref: candidate.ref, accessToken: accessToken)
+                if candidates.isEmpty { error = SkillsLibraryError.noSkillsInRepository.localizedDescription }
+            }
             catch { self.error = error.localizedDescription }
         }
+    }
+
+    func resolveInstallCommand(_ value: String, accessToken: String?) async {
+        guard let command = SkillInstallCommand.parse(value) else {
+            error = SkillsLibraryError.invalidInstallCommand.localizedDescription
+            candidates = []
+            return
+        }
+        isSearching = true
+        error = nil
+        candidates = []
+        defer { isSearching = false }
+        do {
+            var found = try await GitHubSkillSearchAPI().repositorySkills(command.repository, pluginName: command.pluginName, sourcePath: command.sourcePath, accessToken: accessToken)
+            if let name = command.skillName {
+                found = found.filter { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }
+            }
+            candidates = found.map { candidate in
+                var candidate = candidate
+                candidate.installCommand = command.original
+                candidate.installCommandSource = "Provided for \(command.tool)"
+                return candidate
+            }
+            if candidates.isEmpty { error = SkillsLibraryError.noSkillsInRepository.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 
     func setCategory(_ category: String, for entry: SkillEntry) async {
@@ -434,7 +527,10 @@ enum SkillsLibraryError: LocalizedError {
     case emptySkill
     case invalidGitHubURL
     case invalidGitHubResponse
+    case invalidInstallCommand
+    case pluginNotFound
     case truncatedGitHubTree
+    case noSkillsInRepository
     case githubSignInRequired
     case skillDownloadTooLarge
 
@@ -444,7 +540,10 @@ enum SkillsLibraryError: LocalizedError {
         case .emptySkill: "The selected skill folder contains no readable files."
         case .invalidGitHubURL: "Use a GitHub repository or skill folder URL."
         case .invalidGitHubResponse: "GitHub returned skill data the app could not read."
+        case .invalidInstallCommand: "Paste a supported install command that points to a GitHub repository or marketplace."
+        case .pluginNotFound: "That plugin was not found in the repository marketplace. Include its marketplace add command."
         case .truncatedGitHubTree: "GitHub’s file listing was incomplete, so the skill was not copied."
+        case .noSkillsInRepository: "No SKILL.md files were found in this repository."
         case .githubSignInRequired: "Sign in to GitHub before searching for skills."
         case .skillDownloadTooLarge: "This skill exceeds the file count or size limits and was not copied."
         }
@@ -485,6 +584,74 @@ struct GitHubSkillSearchAPI: Sendable {
         }
     }
 
+    func repositorySkills(_ repository: String, ref: String? = nil, pluginName: String? = nil, sourcePath: String? = nil, accessToken: String? = nil) async throws -> [SkillCandidate] {
+        guard Self.isValidRepository(repository) else { throw SkillsLibraryError.invalidGitHubURL }
+        let branch: String
+        if let ref {
+            branch = ref
+        } else {
+            var repositoryURL = URLComponents()
+            repositoryURL.scheme = "https"
+            repositoryURL.host = "api.github.com"
+            repositoryURL.path = "/repos/\(repository)"
+            guard let url = repositoryURL.url else { throw SkillsLibraryError.invalidGitHubURL }
+            let response = try await transport.send(request(url, token: accessToken))
+            guard response.statusCode == 200,
+                  let metadata = try? JSONDecoder().decode(RepositoryMetadata.self, from: response.data) else {
+                throw SkillsLibraryError.invalidGitHubResponse
+            }
+            branch = metadata.defaultBranch
+        }
+
+        let tree = try await loadTree(repository: repository, ref: branch, token: accessToken)
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        let encodedRef = branch.addingPercentEncoding(withAllowedCharacters: allowed) ?? branch
+        var skillRoot = sourcePath.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
+        if let pluginName {
+            guard let manifest = tree.tree.first(where: { $0.type == "blob" && $0.path.hasSuffix("marketplace.json") }) else {
+                throw SkillsLibraryError.pluginNotFound
+            }
+            let data = try await blobData(repository: repository, sha: manifest.sha, token: accessToken)
+            guard let catalog = try? JSONDecoder().decode(PluginMarketplace.self, from: data),
+                  let plugin = catalog.plugins.first(where: { $0.name == pluginName }),
+                  !plugin.source.hasPrefix("http"), plugin.source.split(separator: "/").allSatisfy({ $0 != ".." }) else {
+                throw SkillsLibraryError.pluginNotFound
+            }
+            let parts = plugin.source.split(separator: "/").map(String.init).filter { $0 != "." }
+            guard parts.allSatisfy({ $0 != ".." && !$0.hasPrefix(".") }) else { throw SkillsLibraryError.pluginNotFound }
+            skillRoot = parts.joined(separator: "/")
+        }
+        return tree.tree.compactMap { item in
+            guard item.type == "blob", item.mode != "120000",
+                  item.path.lowercased().hasSuffix("/skill.md") || item.path.caseInsensitiveCompare("SKILL.md") == .orderedSame,
+                  item.path.split(separator: "/").allSatisfy({ !$0.hasPrefix(".") && $0 != "." && $0 != ".." }),
+                  Self.isValidSHA(item.sha) else { return nil }
+            if let skillRoot, !skillRoot.isEmpty, item.path != skillRoot, !item.path.hasPrefix(skillRoot + "/") { return nil }
+            var sourceURL = URLComponents()
+            sourceURL.scheme = "https"
+            sourceURL.host = "github.com"
+            let encodedPath = item.path.split(separator: "/")
+                .map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? String($0) }
+                .joined(separator: "/")
+            sourceURL.percentEncodedPath = "/\(repository)/blob/\(encodedRef)/\(encodedPath)"
+            guard let url = sourceURL.url else { return nil }
+            let name = item.path.split(separator: "/").dropLast().last.map(String.init) ?? repository
+            return SkillCandidate(name: name, description: "", url: url.absoluteString, source: "\(repository)/\(item.path)", repository: repository, path: item.path, ref: branch)
+        }
+    }
+
+    private func blobData(repository: String, sha: String, token: String?) async throws -> Data {
+        guard Self.isValidSHA(sha) else { throw SkillsLibraryError.invalidGitHubResponse }
+        var components = URLComponents()
+        components.scheme = "https"; components.host = "api.github.com"; components.path = "/repos/\(repository)/git/blobs/\(sha)"
+        guard let url = components.url else { throw SkillsLibraryError.invalidGitHubURL }
+        let response = try await transport.send(request(url, token: token))
+        guard response.statusCode == 200, response.data.count <= 3_000_000,
+              let blob = try? JSONDecoder().decode(GitBlobResponse.self, from: response.data), blob.encoding == "base64",
+              let data = Data(base64Encoded: blob.content.filter { !$0.isWhitespace }) else { throw SkillsLibraryError.invalidGitHubResponse }
+        return data
+    }
+
     static func candidate(from value: String) -> SkillCandidate? {
         guard let components = URLComponents(string: value),
               components.scheme?.lowercased() == "https",
@@ -493,8 +660,9 @@ struct GitHubSkillSearchAPI: Sendable {
               !components.path.split(separator: "/").isEmpty else { return nil }
         let segments = components.path.split(separator: "/").map(String.init)
         guard segments.count >= 2 else { return nil }
-        let repository = "\(segments[0])/\(segments[1])"
-        guard segments[0].allSatisfy(\.isASCII), segments[1].allSatisfy(\.isASCII) else { return nil }
+        let repositoryName = segments[1].lowercased().hasSuffix(".git") ? String(segments[1].dropLast(4)) : segments[1]
+        let repository = "\(segments[0])/\(repositoryName)"
+        guard !repositoryName.isEmpty, Self.isValidRepository(repository) else { return nil }
         guard segments.count >= 3, segments[2] == "tree" || segments[2] == "blob" else {
             return SkillCandidate(name: repository, description: "", url: value, source: repository, repository: repository, path: nil, ref: nil)
         }
@@ -516,26 +684,11 @@ struct GitHubSkillSearchAPI: Sendable {
         let skillPath = path.lowercased().hasSuffix("skill.md")
             ? path.split(separator: "/").dropLast().joined(separator: "/")
             : path
-        let parts = repository.split(separator: "/")
-        guard parts.count == 2,
-              parts.allSatisfy({ $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".") } }),
+        guard Self.isValidRepository(repository),
               path.split(separator: "/").allSatisfy({ $0 != "." && $0 != ".." && !$0.hasPrefix(".") }) else {
             throw SkillsLibraryError.invalidGitHubURL
         }
-        let branchCharacters = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
-        let encodedRef = ref.addingPercentEncoding(withAllowedCharacters: branchCharacters) ?? ref
-        var treeURL = URLComponents()
-        treeURL.scheme = "https"
-        treeURL.host = "api.github.com"
-        treeURL.percentEncodedPath = "/repos/\(repository)/git/trees/\(encodedRef)"
-        treeURL.queryItems = [URLQueryItem(name: "recursive", value: "1")]
-        guard let url = treeURL.url else { throw SkillsLibraryError.invalidGitHubURL }
-        let response = try await transport.send(request(url, token: accessToken))
-        guard response.statusCode == 200, response.data.count <= 5_000_000,
-              let tree = try? JSONDecoder().decode(GitTreeResponse.self, from: response.data) else {
-            throw SkillsLibraryError.invalidGitHubResponse
-        }
-        guard !tree.truncated else { throw SkillsLibraryError.truncatedGitHubTree }
+        let tree = try await loadTree(repository: repository, ref: ref, token: accessToken)
         let prefix = skillPath.isEmpty ? "" : skillPath + "/"
         let files = tree.tree.filter { item in
             item.type == "blob" && item.mode != "120000" && item.path.hasPrefix(prefix)
@@ -589,6 +742,44 @@ struct GitHubSkillSearchAPI: Sendable {
         request.setValue(GitHubAPIClient.apiVersion, forHTTPHeaderField: "X-GitHub-Api-Version")
         if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         return request
+    }
+
+    private func loadTree(repository: String, ref: String, token: String?) async throws -> GitTreeResponse {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        let encodedRef = ref.addingPercentEncoding(withAllowedCharacters: allowed) ?? ref
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "api.github.com"
+        components.percentEncodedPath = "/repos/\(repository)/git/trees/\(encodedRef)"
+        components.queryItems = [URLQueryItem(name: "recursive", value: "1")]
+        guard let url = components.url else { throw SkillsLibraryError.invalidGitHubURL }
+        let response = try await transport.send(request(url, token: token))
+        guard response.statusCode == 200, response.data.count <= 5_000_000,
+              let tree = try? JSONDecoder().decode(GitTreeResponse.self, from: response.data) else {
+            throw SkillsLibraryError.invalidGitHubResponse
+        }
+        guard !tree.truncated else { throw SkillsLibraryError.truncatedGitHubTree }
+        return tree
+    }
+
+    private static func isValidRepository(_ repository: String) -> Bool {
+        let parts = repository.split(separator: "/")
+        return parts.count == 2 && parts.allSatisfy {
+            $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".") }
+        }
+    }
+
+    private static func isValidSHA(_ sha: String) -> Bool {
+        (sha.count == 40 || sha.count == 64) && sha.allSatisfy(\.isHexDigit)
+    }
+
+    private struct RepositoryMetadata: Decodable {
+        let defaultBranch: String
+        enum CodingKeys: String, CodingKey { case defaultBranch = "default_branch" }
+    }
+    private struct PluginMarketplace: Decodable {
+        let plugins: [Plugin]
+        struct Plugin: Decodable { let name: String; let source: String }
     }
 
     private struct CodeSearchResponse: Decodable { let items: [CodeSearchItem] }

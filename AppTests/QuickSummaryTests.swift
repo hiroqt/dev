@@ -50,7 +50,7 @@ final class QuickSummaryTests: XCTestCase {
         let collapsedFrame = NotchPanelGeometry.frame(screenFrame: screen, safeAreaTop: 38, expanded: false)
         let panel = NotchSummaryPanel(contentRect: collapsedFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         defer { panel.orderOut(nil) }
-        let view = NotchSummaryPanelView(store: store, state: state, safeAreaTop: 38, physicalNotchWidth: 180, summaryWidth: 440) { expanded, _ in
+        let view = NotchSummaryPanelView(store: store, providerIntegrations: ProviderIntegrationsStore(detectExecutables: { [:] }), state: state, safeAreaTop: 38, physicalNotchWidth: 180, summaryWidth: 440) { expanded, _ in
             panel.setFrame(NotchPanelGeometry.frame(screenFrame: screen, safeAreaTop: 38, expanded: expanded), display: true)
         }
         panel.contentView = NotchSummaryPanel.host(view)

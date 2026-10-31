@@ -3,9 +3,11 @@ import SwiftUI
 
 struct WorkspaceView: View {
     @State private var store: WorkspaceStore
+    @State private var providerIntegrations: ProviderIntegrationsStore
     @State private var selection: Destination? = .allProjects
     @State private var isSidebarVisible = true
     @State private var showingRepositorySearch = false
+    @State private var showingProviderUsage = false
     @State private var isToolPanelOpen = false
     @State private var isToolLauncherVisible = true
     @State private var isToolFullScreen = false
@@ -22,8 +24,9 @@ struct WorkspaceView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
 
-    init(store: WorkspaceStore = WorkspaceStore()) {
+    init(store: WorkspaceStore = WorkspaceStore(), providerIntegrations: ProviderIntegrationsStore = ProviderIntegrationsStore()) {
         _store = State(initialValue: store)
+        _providerIntegrations = State(initialValue: providerIntegrations)
     }
 
     private var selectedColorScheme: ColorScheme? {
@@ -153,11 +156,13 @@ struct WorkspaceView: View {
                                     }
                                     WorkspaceToolsPanel(
                                         store: store,
+                                        integrations: providerIntegrations,
                                         tabs: $toolTabs,
                                         selectedTabID: $selectedToolTabID,
                                         showingLauncher: $isToolLauncherVisible,
                                         isFullScreen: $isToolFullScreen,
                                         currentProjectFolder: selectedProjectFolder,
+                                        currentProjectProviderID: selectedProjectProviderID,
                                         openProject: { selection = $0 },
                                         closePanel: closeToolPanel
                                     )
@@ -188,6 +193,11 @@ struct WorkspaceView: View {
                 selection = store.isCloned(repository) ? .project(repository.id, .overview) : .allProjects
                 showingRepositorySearch = false
             }
+        }
+        .sheet(isPresented: $showingProviderUsage) {
+            ProviderUsageSummary(integrations: providerIntegrations)
+                .padding(20)
+                .frame(width: 360)
         }
         .onChange(of: selection) { _, destination in
             store.recordRecentProject(for: destination)
@@ -220,6 +230,14 @@ struct WorkspaceView: View {
         switch selection {
         case let .localProject(id, _): store.localProjects.first(where: { $0.id == id })?.url
         case let .project(id, _): store.clonedRepositoryPaths[id].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        default: nil
+        }
+    }
+
+    private var selectedProjectProviderID: String? {
+        switch selection {
+        case let .project(id, _): "github-\(id)"
+        case let .localProject(id, _): "local-\(id.uuidString)"
         default: nil
         }
     }
@@ -361,6 +379,11 @@ struct WorkspaceView: View {
             .scrollContentBackground(.hidden)
 
             Divider()
+            ProviderUsageSummary(integrations: providerIntegrations)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+            Divider()
             VStack(spacing: 4) {
                 HStack(spacing: 10) {
                     Image(systemName: "person.crop.circle.fill")
@@ -441,6 +464,9 @@ struct WorkspaceView: View {
             Spacer(minLength: 8)
             Divider()
             VStack(spacing: 6) {
+                compactButton("Provider usage", icon: "chart.bar.xaxis", selected: showingProviderUsage, id: "compact-provider-usage") {
+                    showingProviderUsage = true
+                }
                 compactButton("GitHub account: \(store.signedInUsername.map { "@\($0)" } ?? store.sidebarAccountStatus)", icon: "person.crop.circle.fill", selected: false, id: "compact-account") {
                     selection = .settings
                 }
@@ -544,7 +570,7 @@ struct WorkspaceView: View {
         case .skills:
             SkillsLibraryView(store: store)
         case .settings:
-            SettingsView(store: store)
+            SettingsView(store: store, providerIntegrations: providerIntegrations)
         case let .project(id, page):
             if let repository = store.repository(id: id), store.isCloned(repository) {
                 ProjectWorkspaceView(store: store, repository: repository, page: page, openAllProjects: {
@@ -2642,6 +2668,7 @@ private struct MarkdownPreviewView: View {
 
 private struct SettingsView: View {
     @Bindable var store: WorkspaceStore
+    @Bindable var providerIntegrations: ProviderIntegrationsStore
     @AppStorage("contentAreaOpacity") private var contentAreaOpacity = 1.0
     @AppStorage("workspaceFontSize") private var workspaceFontSize = "medium"
     @AppStorage("workspaceAppearance") private var workspaceAppearance = "system"
@@ -2726,6 +2753,9 @@ private struct SettingsView: View {
                         Text("Client ID is read from the app’s GitHubClientID configuration key.")
                             .foregroundStyle(.secondary)
                     }
+                }
+                settingsCard("Coding Providers") {
+                    ProviderSettingsView(integrations: providerIntegrations)
                 }
                 settingsCard("Access") {
                     Text("GitHub writes are limited to pull request creation, comments, reviews, and confirmed merges. The app never pushes local branches. Sign out removes the token and leaves local clones untouched.")
