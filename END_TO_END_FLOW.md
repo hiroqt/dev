@@ -39,12 +39,14 @@ flowchart TD
     L1 --> L2[Choose any folder in native picker]
     L2 --> L3[Save scoped bookmark; open local Overview or Files]
     J --> S1[Open Skills library]
-    S1 --> S2[Search saved skills offline or submit a GitHub code search]
+    S1 --> S2[Search saved skills offline or resolve an install command]
     S1 --> S3[Scan a clone, select a folder, or add a GitHub URL]
     S3 --> S4[Copy regular skill files locally; skip hidden files and symlinks]
     S4 --> S5[Preview offline; copy attributed install command if available]
     J --> Z[Poll while app runs; show changed PRs and notifications]
     Z --> J
+    J --> PI[Enable providers and optionally select plan labels in Settings]
+    PI --> K
     J --> Q[Open Quick Summary from notch handle or menu bar]
     Q --> Q1[Show open PR count and three recent PRs]
     Q --> Q2[Open Workspace, Skills, Terminal, or Codex]
@@ -73,13 +75,13 @@ flowchart TD
 - Keep the Overview available whether or not GitHub is connected. Show **New project**, **Open project**, and **Clone project** actions. New project validates a name and creates an empty child folder inside a user-selected parent; Open project bookmarks a user-selected folder; Clone project lists accessible GitHub repositories and reuses the protected clone flow.
 - Show recent projects and at least five recently updated PRs with project identity and status. Show **More** for PRs only when more than five are available; open the full recent-PR list. Project **More** opens a searchable recent-project picker.
 - The right Overview panel configures a single global background theme instead of showing a commits heatmap. Apply it below the app header, behind workspace content. Pixel Mosaic fills the workspace with a large, drifting pixel field; Terminal Stream renders a flowing ASCII luminance field in its selected palette; Aurora Wave is one continuous pixelated wave rising from the bottom toward the top, with subtle flowing glow and sparse sparkles in its selected palette. Each theme saves its own Aqua, Violet, Amber, or Emerald color choice. Keep motion subtle behind content and pause animation for Reduce Motion.
-- The header **+** opens a right-docked launcher with **Browser**, **Terminal**, **Codex**, and the three most recently opened local/GitHub projects. Selecting **Codex** opens a named Codex terminal tab, starts the `codex` CLI in the selected project folder, and shows the Codex logo. The workspace resizes beside the panel without overlap. Project shortcuts change the main workspace and leave the panel open. Browser/Terminal/Codex selections open retained tabs; closing each tab closes its session, and closing the final tab closes the panel. A new-tab action reopens the launcher. Full-screen replaces the app content region with the active tool while preserving the workspace sidebar and tab state.
+- The header **+** opens a right-docked launcher with **Browser**, **Terminal**, the globally and per-project enabled **Codex**, **Antigravity**, and **Claude** CLIs, and the three most recently opened local/GitHub projects. A provider row shows whether its CLI is available; a missing CLI has an official setup link. **Launch** opens the official CLI in a named terminal tab rooted at the selected project. If no project is selected, explain that one is required. The workspace resizes beside the panel without overlap. Project shortcuts change the main workspace and leave the panel open. Tool selections open retained tabs; closing each tab closes its session, and closing the final tab closes the panel. A new-tab action reopens the launcher. Full-screen replaces the app content region with the active tool while preserving the workspace sidebar and tab state.
 - Browser tabs navigate HTTP(S) pages without an app JavaScript bridge. The Terminal is an interactive local shell using the user's normal macOS permissions; the selected project is its initial working directory, not a filesystem sandbox. Stack or overlay the panel as needed on narrow windows without covering the header controls.
 
 ### 3. Projects dashboard
 
 - Use a collapsible workspace sidebar with **All Projects**, **Activity**, a **Projects** section containing one row per GitHub repository, and **Settings**. Local Projects is a separate section for explicitly selected folders; entries remain distinct from GitHub repositories.
-- Add a top-level **Skills** destination. The library searches its local catalog offline, offers a separate user-submitted GitHub code search, and lets the user add a local skill folder or GitHub URL. Each saved item shows description, tags, category, source and stored location; selecting it opens the offline copy.
+- Add a top-level **Skills** destination. The library searches its local catalog offline, accepts supported npx/plugin install commands to find GitHub skill candidates, and lets the user add a local skill folder. Each saved item shows description, tags, category, source and stored location; selecting it opens the offline copy.
 - Selecting a repository opens its project workspace. Keep long branch and commit lists inside that workspace so the sidebar remains scannable.
 - Drag the divider at the tool panel's left edge to adjust its width; width is remembered across launches and clamped to the current window while leaving at least 320 points for the workspace. Below the minimum side-by-side width, the panel uses the full content area.
 - Hover a project row to edit its sidebar name/color/icon, pin it, or open its settings menu; right-click offers the same actions. Drag a row onto another in its section to reorder; pinning moves it to the top of that section. Name, color, and icon affect only the sidebar. Open With lists installed coding IDEs; Show in Finder reveals the selected folder and the path item copies its full path. Remove from Sidebar removes only the app entry and preserves local files and GitHub state.
@@ -140,6 +142,14 @@ flowchart TD
 - Respect GitHub rate limits and network retry guidance. During throttling, show when another refresh can occur.
 - On sign-out, revoke/clear stored app credentials and optionally clear cached GitHub metadata. Never delete clone folders. Make clear that local clones persist until the user removes them in Finder.
 
+### 10. Coding provider integrations
+
+- Settings lets the user enable each provider globally and optionally label the account plan. A selected plan is display-only and never determines limits.
+- The project launcher keeps a separate enable switch per project. Launch is available only when the provider is globally and locally enabled and its CLI is found.
+- Launch Codex with `codex`, Antigravity with `agy`, and Claude Code with `claude` in the selected project's terminal. Missing CLIs show official setup links; dev never installs them or sends project context.
+- Show Codex as Connected only after the user's explicit `codex login status` check succeeds. Antigravity and Claude sign-in remain Unknown in dev; verify inside their CLIs.
+- Show expandable Codex, Antigravity, and Claude usage rows in the sidebar and Quick Summary; the expanded notch shares this usage panel, and the compact sidebar opens it in a sheet. Refresh Antigravity with the read-only `agy -p /usage --output-format json` and `agy -p /credits --output-format json` commands; refresh Codex with `codex app-server --listen stdio://` and its structured `account/rateLimits/read` response. Refresh on demand and every five minutes while enabled, and Codex after launching its CLI. Use only structured fields, detect the returned Codex plan when available, and keep the current snapshot in memory. In the Codex terminal, typing the exact `/status` or `/usage` command triggers an immediate refresh without reading the terminal response. Codex protocol failures show Unavailable; Claude shows Unavailable with provider usage help links. Do not parse interactive output or infer limits from plan labels.
+
 ## Important edge cases
 
 | Condition | User-visible behavior |
@@ -151,6 +161,8 @@ flowchart TD
 | Clone interrupted or disk full | Show sanitized process error, retain partial data, offer retry after user review. |
 | Branch deleted after merge | Keep the PR/merge record if GitHub returns it; label branch ref as deleted/unavailable. |
 | API rate limit/offline | Preserve last known data, mark it stale, and show next refresh/retry. |
+| Provider CLI missing | Show Not found and the provider's setup documentation link; do not install it. |
+| Provider sign-in or quota cannot be queried safely | Show Unknown or Unavailable and direct the user to the provider CLI; do not inspect credentials or infer limits from the selected plan. |
 | AI unavailable or disabled | Continue deterministic views; do not fabricate an AI summary. |
 | Preview URL invalid or unsupported scheme | Disable the link and explain that only web URLs can be opened. |
 
@@ -166,8 +178,8 @@ flowchart TD
 
 ### Skills library
 
-- After a clone is registered, scan it for `SKILL.md` and Markdown links advertising skill sources. Repeat only when the user requests a scan. Offer discovered links as candidates and never follow them recursively. Also allow selecting a local folder or adding a GitHub source URL.
-- A submitted GitHub search uses the signed-in token to query code for the user's terms and `SKILL.md`, then shows results with GitHub source links. Do not run an online search as the user types.
+- After a clone is registered, scan it for `SKILL.md` and Markdown links advertising skill sources. Repeat only when the user requests a scan. Offer discovered links as candidates and never follow them recursively. Also allow selecting a local folder or pasting a supported Codex, Claude Code, Copilot CLI, Gemini CLI, or `npx skills add` command. Parse command text without executing it, resolve GitHub sources with read-only GET requests, and offer matching skills as candidates.
+- A submitted npx/plugin command is parsed locally and resolved through read-only GitHub API requests. Exact skill names filter results; plugin names are resolved through marketplace manifests. Show results as import candidates. Never execute pasted commands or search online as the user types.
 - On import, keep the source repository/path/ref and store regular files in Application Support for offline preview. Skip hidden paths and symlinks; cap each import at 100 files, 2 MB per file, and 10 MB total. Show a clear state when a source goes missing and keep the cached files. Refresh copies newer source contents while retaining user-edited category.
 - Derive a category suggestion from name, description, and tags using local rules; let the user choose a different category. Search locally by name, purpose/description, and tags, with category filtering.
 - Show source-documented install commands or derive `npx skills add <owner>/<repo> --skill <skill>` for a GitHub source when the standard `skills` CLI applies. Attribute and copy the command; never run it. Treat all skill text and commands as untrusted, inert display content.

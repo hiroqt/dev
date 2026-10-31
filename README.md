@@ -2,6 +2,8 @@
 
 Native macOS workspace for reviewing GitHub projects. The app fetches repositories from GitHub after Device Flow sign-in and supports creating PRs from pushed branches, comments, reviews, and confirmed merges when the GitHub App has Pull requests: write permission. The sidebar shows each project’s open PR count. The app does not push local branches. Add the registered GitHub App client ID to `Config/GitHub.xcconfig` and enable Device Flow in the App settings before signing in. The current client ID is intentionally blank.
 
+The project tool panel can launch locally installed Codex (`codex`), Antigravity (`agy`), and Claude Code (`claude`) CLIs. Enable providers globally in Settings and per project in the tool launcher. The sidebar and Quick Summary show per-provider usage: Antigravity uses structured CLI quota/credit output, Codex reads the local app-server's structured plan and rate-limit response, and Claude links to its provider usage screen and shows Unavailable in dev. Usage snapshots remain in memory; user-entered plan labels never determine limits.
+
 ## Open and run
 
 Open `dev.xcodeproj` in Xcode 27 or build/run the shared scheme:
