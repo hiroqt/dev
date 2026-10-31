@@ -462,7 +462,15 @@ struct WorkspaceToolTab: Identifiable, Hashable {
     let kind: Kind
     let workingDirectory: URL?
     let initialCommand: String?
-    var title: String { kind == .browser ? "Browser" : initialCommand == "codex" ? "Codex" : "Terminal" }
+    var title: String {
+        guard kind == .terminal else { return "Browser" }
+        return switch initialCommand {
+        case "codex": "Codex"
+        case "agy": "Antigravity"
+        case "claude": "Claude"
+        default: "Terminal"
+        }
+    }
     var icon: String { kind == .browser ? "globe" : "terminal" }
     var isCodex: Bool { initialCommand == "codex" }
 }
@@ -477,11 +485,13 @@ private struct ToolRecentProject: Identifiable {
 
 struct WorkspaceToolsPanel: View {
     @Bindable var store: WorkspaceStore
+    @Bindable var integrations: ProviderIntegrationsStore
     @Binding var tabs: [WorkspaceToolTab]
     @Binding var selectedTabID: UUID?
     @Binding var showingLauncher: Bool
     @Binding var isFullScreen: Bool
     let currentProjectFolder: URL?
+    let currentProjectProviderID: String?
     let openProject: (Destination) -> Void
     let closePanel: () -> Void
 
@@ -506,7 +516,7 @@ struct WorkspaceToolsPanel: View {
                     Group {
                         switch tab.kind {
                         case .browser: EmbeddedBrowserTab()
-                        case .terminal: EmbeddedTerminalTab(store: store, directory: tab.workingDirectory, initialCommand: tab.initialCommand)
+                        case .terminal: EmbeddedTerminalTab(store: store, directory: tab.workingDirectory, initialCommand: tab.initialCommand, providerIntegrations: integrations)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -595,7 +605,9 @@ struct WorkspaceToolsPanel: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     toolCard("Browser", detail: "Open a website", icon: "globe") { addTab(.browser) }
                     toolCard("Terminal", detail: "Run a shell", icon: "terminal") { addTab(.terminal) }
-                    toolCard("Codex", detail: "Start Codex in this project", icon: "terminal", iconAsset: "CodexMark") { addTab(.terminal, initialCommand: "codex") }
+                }
+                ProjectProviderLaunchList(integrations: integrations, projectID: currentProjectProviderID) { command in
+                    addTab(.terminal, initialCommand: command)
                 }
                 HStack {
                     Text("Recent projects").workspaceFont(.headline)
@@ -636,14 +648,10 @@ struct WorkspaceToolsPanel: View {
         }
     }
 
-    private func toolCard(_ title: String, detail: String, icon: String, iconAsset: String? = nil, action: @escaping () -> Void) -> some View {
+    private func toolCard(_ title: String, detail: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 12) {
-                if let iconAsset {
-                    Image(iconAsset).resizable().scaledToFit().frame(width: 24, height: 24)
-                } else {
-                    Image(systemName: icon).font(.system(size: 18, weight: .medium)).foregroundStyle(Color.accentColor)
-                }
+                Image(systemName: icon).font(.system(size: 18, weight: .medium)).foregroundStyle(Color.accentColor)
                 Text(title).workspaceFont(.body, weight: .semibold)
                 Text(detail).workspaceFont(.caption).foregroundStyle(.secondary)
             }
@@ -796,6 +804,7 @@ struct EmbeddedTerminalTab: View {
     @Bindable var store: WorkspaceStore
     let directory: URL?
     let initialCommand: String?
+    let providerIntegrations: ProviderIntegrationsStore?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -805,7 +814,7 @@ struct EmbeddedTerminalTab: View {
                 Spacer()
             }
             .padding(9).overlay(alignment: .bottom) { Divider() }
-            LocalTerminalRepresentable(store: store, directory: directory, initialCommand: initialCommand)
+            LocalTerminalRepresentable(store: store, directory: directory, initialCommand: initialCommand, providerIntegrations: providerIntegrations)
         }
     }
 }
@@ -814,6 +823,7 @@ private struct LocalTerminalRepresentable: NSViewRepresentable {
     @Bindable var store: WorkspaceStore
     let directory: URL?
     let initialCommand: String?
+    let providerIntegrations: ProviderIntegrationsStore?
     @AppStorage("contentAreaOpacity") private var surfaceOpacity = 1.0
     @AppStorage("workspaceFontSize") private var workspaceFontSize = "medium"
 
@@ -826,9 +836,15 @@ private struct LocalTerminalRepresentable: NSViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(store: store, directory: directory, initialCommand: initialCommand) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(store: store, directory: directory, initialCommand: initialCommand, providerIntegrations: providerIntegrations)
+    }
     func makeNSView(context: Context) -> LocalProcessTerminalView {
-        let terminal = LocalProcessTerminalView(frame: .zero)
+        let terminal = UsageAwareLocalProcessTerminalView(frame: .zero)
+        terminal.detectsCodexUsageCommands = initialCommand == "codex"
+        terminal.onCodexUsageCommand = { [weak coordinator = context.coordinator] in
+            Task { @MainActor in await coordinator?.refreshCodexUsage() }
+        }
         terminal.font = .monospacedSystemFont(ofSize: terminalFontSize, weight: .regular)
         terminal.backgroundOpacity = surfaceOpacity
         terminal.processDelegate = context.coordinator
@@ -848,14 +864,17 @@ private struct LocalTerminalRepresentable: NSViewRepresentable {
         private let store: WorkspaceStore
         private let directory: URL?
         private let initialCommand: String?
+        private let providerIntegrations: ProviderIntegrationsStore?
         private var hasDirectoryAccess = false
         private var activityMonitor: ShellCommandActivityMonitor?
         private var reportedInitialCommand = false
-        init(store: WorkspaceStore, directory: URL?, initialCommand: String?) {
+        init(store: WorkspaceStore, directory: URL?, initialCommand: String?, providerIntegrations: ProviderIntegrationsStore?) {
             self.store = store
             self.directory = directory
             self.initialCommand = initialCommand
+            self.providerIntegrations = providerIntegrations
         }
+        func refreshCodexUsage() async { await providerIntegrations?.refreshUsage() }
         func start(in terminal: LocalProcessTerminalView) {
             if let directory { hasDirectoryAccess = directory.startAccessingSecurityScopedResource() }
             let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
@@ -886,5 +905,18 @@ private struct LocalTerminalRepresentable: NSViewRepresentable {
             directory.stopAccessingSecurityScopedResource()
             hasDirectoryAccess = false
         }
+    }
+}
+
+private final class UsageAwareLocalProcessTerminalView: LocalProcessTerminalView {
+    var detectsCodexUsageCommands = false
+    var onCodexUsageCommand: (() -> Void)?
+    private var commandDetector = CodexUsageCommandDetector()
+
+    override func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        if detectsCodexUsageCommands, commandDetector.consume(data) {
+            onCodexUsageCommand?()
+        }
+        super.send(source: source, data: data)
     }
 }

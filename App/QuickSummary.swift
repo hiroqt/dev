@@ -18,9 +18,11 @@ enum WorkspaceWindowActivation {
 
 struct QuickSummaryView: View {
     @Bindable var store: WorkspaceStore
+    @Bindable var providerIntegrations: ProviderIntegrationsStore
     let activate: (WorkspaceQuickAction) -> Void
     var summaryWidth: CGFloat = 360
     var showsShortcuts = true
+    @AppStorage("providerIntegration.codex.enabled") private var codexProviderEnabled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -81,15 +83,10 @@ struct QuickSummaryView: View {
                     shortcut("Workspace", icon: "square.grid.2x2") { open(.workspace) }
                     shortcut("Skills", icon: "sparkles.rectangle.stack") { open(.skills) }
                     shortcut("Terminal", icon: "terminal") { open(.terminal) }
-                    shortcut("Codex", icon: "sparkles") { open(.codex) }
+                    if codexProviderEnabled { shortcut("Codex", icon: "sparkles") { open(.codex) } }
                 }
             }
-            HStack {
-                Label("AI usage preview", systemImage: "chart.bar.xaxis").foregroundStyle(.secondary)
-                Spacer()
-                Text("Coming soon").font(.caption).foregroundStyle(.tertiary)
-            }
-            .accessibilityIdentifier("summary-ai-coming-soon")
+            ProviderUsageSummary(integrations: providerIntegrations)
             HStack {
                 Label("Tasks", systemImage: "checklist").foregroundStyle(.secondary)
                 Spacer()
@@ -123,6 +120,7 @@ final class NotchSummaryPanelState {
 
 struct NotchSummaryPanelView: View {
     @Bindable var store: WorkspaceStore
+    @Bindable var providerIntegrations: ProviderIntegrationsStore
     @Bindable var state: NotchSummaryPanelState
     let safeAreaTop: CGFloat
     let physicalNotchWidth: CGFloat
@@ -137,6 +135,7 @@ struct NotchSummaryPanelView: View {
     @AppStorage("workspacePixelMosaicPalette") private var pixelPalette = WorkspaceThemePalette.aqua.rawValue
     @AppStorage("workspaceTerminalStreamPalette") private var terminalPalette = WorkspaceThemePalette.emerald.rawValue
     @AppStorage("workspaceAuroraGridPalette") private var auroraPalette = WorkspaceThemePalette.aqua.rawValue
+    @AppStorage("providerIntegration.codex.enabled") private var codexProviderEnabled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var theme: WorkspaceBackgroundTheme { WorkspaceBackgroundTheme(rawValue: themeRaw) ?? .pixelMosaic }
@@ -168,7 +167,7 @@ struct NotchSummaryPanelView: View {
                         .frame(height: safeAreaTop)
                         ZStack {
                             ScrollView {
-                                QuickSummaryView(store: store, activate: open, summaryWidth: summaryWidth, showsShortcuts: false)
+                                QuickSummaryView(store: store, providerIntegrations: providerIntegrations, activate: open, summaryWidth: summaryWidth, showsShortcuts: false)
                                     .frame(maxWidth: .infinity)
                             }
                             .scrollIndicators(.hidden)
@@ -177,14 +176,14 @@ struct NotchSummaryPanelView: View {
                             .accessibilityHidden(selectedTool != .workspace)
                             if selectedTool == .skills { skillsPreview }
                             if terminalStarted {
-                                EmbeddedTerminalTab(store: store, directory: nil, initialCommand: nil)
+                                EmbeddedTerminalTab(store: store, directory: nil, initialCommand: nil, providerIntegrations: providerIntegrations)
                                     .opacity(selectedTool == .terminal ? 1 : 0)
                                     .allowsHitTesting(selectedTool == .terminal)
                                     .accessibilityHidden(selectedTool != .terminal)
                                     .accessibilityIdentifier("notch-terminal")
                             }
                             if codexStarted {
-                                EmbeddedTerminalTab(store: store, directory: nil, initialCommand: "codex")
+                                EmbeddedTerminalTab(store: store, directory: nil, initialCommand: "codex", providerIntegrations: providerIntegrations)
                                     .opacity(selectedTool == .codex ? 1 : 0)
                                     .allowsHitTesting(selectedTool == .codex)
                                     .accessibilityHidden(selectedTool != .codex)
@@ -244,7 +243,7 @@ struct NotchSummaryPanelView: View {
                     .padding(.horizontal, 6).background(.black, in: Capsule())
                     HStack(spacing: 2) {
                         widget("Terminal", icon: "terminal", action: .terminal)
-                        widget("Codex", icon: "sparkles", action: .codex)
+                        if codexProviderEnabled { widget("Codex", icon: "sparkles", action: .codex) }
                     }
                     .padding(.horizontal, 6).background(.black, in: Capsule())
                 }
@@ -344,6 +343,7 @@ final class NotchSummaryPanel: NSPanel {
 @MainActor
 final class NotchSummaryPanelController: NSObject, NSWindowDelegate {
     private let store: WorkspaceStore
+    private let providerIntegrations: ProviderIntegrationsStore
     private let state = NotchSummaryPanelState()
     private var panel: NSPanel?
     private var expanded = false
@@ -353,8 +353,9 @@ final class NotchSummaryPanelController: NSObject, NSWindowDelegate {
     private var globalClickMonitor: Any?
     private var localClickMonitor: Any?
 
-    init(store: WorkspaceStore) {
+    init(store: WorkspaceStore, providerIntegrations: ProviderIntegrationsStore) {
         self.store = store
+        self.providerIntegrations = providerIntegrations
         super.init()
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refreshScreenMetrics() }
@@ -440,7 +441,7 @@ final class NotchSummaryPanelController: NSObject, NSWindowDelegate {
 
     private func hostingView(for screen: NSScreen) -> NSView {
         let summaryWidth = min(440, max(280, screen.frame.width - 56))
-        return NotchSummaryPanel.host(NotchSummaryPanelView(store: store, state: state, safeAreaTop: screen.safeAreaInsets.top, physicalNotchWidth: Self.notchWidth(on: screen), summaryWidth: summaryWidth, resize: { [weak self] expanded, reduceMotion in
+        return NotchSummaryPanel.host(NotchSummaryPanelView(store: store, providerIntegrations: providerIntegrations, state: state, safeAreaTop: screen.safeAreaInsets.top, physicalNotchWidth: Self.notchWidth(on: screen), summaryWidth: summaryWidth, resize: { [weak self] expanded, reduceMotion in
             self?.resize(expanded: expanded, animated: !reduceMotion)
         }))
     }

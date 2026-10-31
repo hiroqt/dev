@@ -29,6 +29,8 @@ final class WorkspaceFlowTests: XCTestCase {
         XCTAssertTrue(app.textFields["notch-skills-search"].waitForExistence(timeout: 3))
         app.buttons["notch-widget-workspace"].click()
         XCTAssertTrue(app.buttons["Open Workspace"].exists)
+        XCTAssertTrue(app.staticTexts["AI usage"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["provider-usage-codex"].exists)
         minimize.click()
         XCTAssertTrue(expand.waitForExistence(timeout: 5))
         XCTAssertLessThanOrEqual(expand.frame.width, idleWidth + 1)
@@ -101,6 +103,39 @@ final class WorkspaceFlowTests: XCTestCase {
         XCTAssertEqual(app.otherElements["workspace-header-title"].label, "Settings")
     }
 
+    func testProviderIntegrationsCanBeEnabledInSettings() throws {
+        let app = XCUIApplication()
+        app.launch()
+        app.descendants(matching: .any)["nav-settings"].click()
+
+        let codex = app.descendants(matching: .any)["provider-global-codex-enabled"]
+        let antigravity = app.descendants(matching: .any)["provider-global-antigravity-enabled"]
+        let claude = app.descendants(matching: .any)["provider-global-claude-enabled"]
+        XCTAssertTrue(codex.waitForExistence(timeout: 5))
+        XCTAssertTrue(antigravity.exists)
+        XCTAssertTrue(claude.exists)
+        XCTAssertTrue(app.staticTexts["5-hour / weekly usage in dev"].exists)
+    }
+
+    func testProviderUsageIsAvailableFromSidebarAndExpandedFromSummary() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["AI usage"].waitForExistence(timeout: 5))
+        let codexUsage = app.buttons["provider-usage-codex"]
+        XCTAssertTrue(codexUsage.waitForExistence(timeout: 3))
+        codexUsage.click()
+        XCTAssertTrue(app.staticTexts["5-hour limit"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Unavailable"].firstMatch.exists)
+
+        let compactSidebar = app.buttons["sidebar-toggle"]
+        if compactSidebar.exists {
+            compactSidebar.click()
+            app.buttons["compact-provider-usage"].click()
+            XCTAssertTrue(app.buttons["provider-usage-refresh"].waitForExistence(timeout: 3))
+        }
+    }
+
     func testSidebarOpensSkillsLibraryInExpandedAndCompactModes() throws {
         let app = XCUIApplication()
         app.launch()
@@ -116,5 +151,20 @@ final class WorkspaceFlowTests: XCTestCase {
         XCTAssertTrue(compactSkills.waitForExistence(timeout: 3))
         compactSkills.click()
         XCTAssertTrue(app.textFields["skills-search"].waitForExistence(timeout: 3))
+    }
+
+    func testSkillsInstallCommandSubmitShowsValidationInThePage() throws {
+        let app = XCUIApplication()
+        app.launch()
+        app.descendants(matching: .any)["nav-skills"].click()
+
+        let command = app.descendants(matching: .any)["skills-install-command"]
+        XCTAssertTrue(command.waitForExistence(timeout: 5))
+        command.click()
+        command.typeText("not an install command")
+        app.buttons["skills-resolve-command"].click()
+
+        XCTAssertTrue(app.staticTexts["skills-install-error"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Paste a supported install command that points to a GitHub repository or marketplace."].exists)
     }
 }
