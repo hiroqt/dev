@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct WorkspaceView: View {
-    @State private var store = WorkspaceStore()
+    @State private var store: WorkspaceStore
     @State private var selection: Destination? = .allProjects
     @State private var isSidebarVisible = true
     @State private var showingRepositorySearch = false
@@ -20,6 +20,11 @@ struct WorkspaceView: View {
     @AppStorage("workspaceAppearance") private var workspaceAppearance = "system"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openWindow) private var openWindow
+
+    init(store: WorkspaceStore = WorkspaceStore()) {
+        _store = State(initialValue: store)
+    }
 
     private var selectedColorScheme: ColorScheme? {
         switch workspaceAppearance {
@@ -184,12 +189,28 @@ struct WorkspaceView: View {
                 showingRepositorySearch = false
             }
         }
-        .task {
-            await store.restoreSession()
-        }
         .onChange(of: selection) { _, destination in
             store.recordRecentProject(for: destination)
         }
+        .onChange(of: store.requestedQuickAction) { _, action in
+            guard let action else { return }
+            switch action {
+            case .workspace: selection = .allProjects
+            case .skills: selection = .skills
+            case .terminal, .codex:
+                let tab = WorkspaceToolTab(
+                    kind: .terminal,
+                    workingDirectory: selectedProjectFolder ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
+                    initialCommand: action == .codex ? "codex" : nil
+                )
+                toolTabs.append(tab)
+                selectedToolTabID = tab.id
+                isToolPanelOpen = true
+                isToolLauncherVisible = false
+            }
+            store.requestedQuickAction = nil
+        }
+        .onAppear { store.openWorkspaceWindow = { WorkspaceWindowActivation.show { openWindow(id: "workspace") } } }
         .onChange(of: store.authorization?.verificationURL) { _, url in
             if let url { NSWorkspace.shared.open(url) }
         }
@@ -261,6 +282,10 @@ struct WorkspaceView: View {
                         .workspaceFont(size: 15, weight: .medium)
                         .tag(Destination.activity)
                         .accessibilityIdentifier("nav-activity")
+                    Label("Skills", systemImage: "sparkles.rectangle.stack")
+                        .workspaceFont(size: 15, weight: .medium)
+                        .tag(Destination.skills)
+                        .accessibilityIdentifier("nav-skills")
                 } header: {
                     Text("Workspace")
                         .workspaceFont(size: 13, weight: .semibold)
@@ -391,6 +416,9 @@ struct WorkspaceView: View {
                     compactButton("Activity", icon: "waveform.path", selected: selection == .activity, id: "compact-nav-activity") {
                         selection = .activity
                     }
+                    compactButton("Skills", icon: "sparkles.rectangle.stack", selected: selection == .skills, id: "compact-nav-skills") {
+                        selection = .skills
+                    }
                     compactSidebarSeparator
                     ForEach(store.orderedSidebarProjects(store.clonedRepositories, key: { (repository: GitHubRepository) in "github:\(repository.id)" })) { repository in
                         let key = "github:\(repository.id)"
@@ -497,6 +525,7 @@ struct WorkspaceView: View {
         switch selection {
         case .allProjects, nil: "All Projects"
         case .activity: "Activity"
+        case .skills: "Skills"
         case .settings: "Settings"
         case let .project(id, _): store.repository(id: id)?.fullName ?? "Project"
         case let .localProject(id, page): "\(store.localProjects.first(where: { $0.id == id })?.name ?? "Local Project") · \(page.rawValue)"
@@ -512,6 +541,8 @@ struct WorkspaceView: View {
             }
         case .activity:
             ActivityView(store: store)
+        case .skills:
+            SkillsLibraryView(store: store)
         case .settings:
             SettingsView(store: store)
         case let .project(id, page):
@@ -2404,7 +2435,7 @@ private struct PullRequestDetailView: View {
     }
 }
 
-private struct MarkdownMessageView: View {
+struct MarkdownMessageView: View {
     let markdown: String
     let id: String
     @State private var isExpanded = true
@@ -2614,6 +2645,10 @@ private struct SettingsView: View {
     @AppStorage("contentAreaOpacity") private var contentAreaOpacity = 1.0
     @AppStorage("workspaceFontSize") private var workspaceFontSize = "medium"
     @AppStorage("workspaceAppearance") private var workspaceAppearance = "system"
+    @AppStorage("quickSummaryEnabled") private var quickSummaryEnabled = true
+    @AppStorage("quickSummaryPollingIntervalSeconds") private var quickSummaryPollingIntervalSeconds = 60
+    @AppStorage("quickSummarySystemNotificationsEnabled") private var quickSummarySystemNotificationsEnabled = false
+    @State private var notificationPermissionMessage: String?
 
     var body: some View {
         ScrollView {
@@ -2652,6 +2687,36 @@ private struct SettingsView: View {
                         Slider(value: $contentAreaOpacity, in: 0.2...1, step: 0.05)
                             .accessibilityIdentifier("content-area-opacity")
                     }
+                }
+                settingsCard("Quick Summary") {
+                    Toggle("Show notch summary", isOn: $quickSummaryEnabled)
+                    HStack {
+                        Text("PR refresh interval")
+                        Spacer()
+                        Picker("PR refresh interval", selection: $quickSummaryPollingIntervalSeconds) {
+                            Text("1 minute").tag(60)
+                            Text("5 minutes").tag(300)
+                            Text("15 minutes").tag(900)
+                        }
+                        .labelsHidden()
+                    }
+                    Toggle("macOS notifications", isOn: $quickSummarySystemNotificationsEnabled)
+                        .onChange(of: quickSummarySystemNotificationsEnabled) { _, enabled in
+                            Task {
+                                let allowed = await store.setSummarySystemNotificationsEnabled(enabled)
+                                if !allowed {
+                                    quickSummarySystemNotificationsEnabled = false
+                                    notificationPermissionMessage = "Notifications were not enabled. You can allow them in System Settings."
+                                } else {
+                                    notificationPermissionMessage = nil
+                                }
+                            }
+                        }
+                    if let notificationPermissionMessage {
+                        Text(notificationPermissionMessage).foregroundStyle(.secondary)
+                    }
+                    Text("In-app popups are always available. System notifications are optional.")
+                        .foregroundStyle(.secondary)
                 }
                 settingsCard("GitHub") {
                     Text("Connection: \(store.connectionState.label)")

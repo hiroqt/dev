@@ -25,6 +25,7 @@ After signing in to GitHub, the user can discover repositories they are permitte
 
 - Use a familiar native macOS workspace shell: a persistent, collapsible sidebar beside a focused content area. Borrow the clear hierarchy and compact navigation pattern from Codex, while using `dev`’s own name, icons, colors, and GitHub-specific content.
 - The sidebar has **All Projects**, **Activity**, a **Projects** section listing registered GitHub projects, a visually distinct **Local Projects** section for explicitly added folders, and **Settings**. Local and GitHub projects remain separate even when they refer to the same remote. Project rows can be pinned and reordered, and their context menu can open the folder in an installed coding IDE, reveal it in Finder, copy its path, or remove its dev sidebar entry. Removing an entry preserves the folder and never changes GitHub.
+- Add a top-level **Skills** library for skills found in project clones, explicitly selected folders, and GitHub sources. Skills are searchable by name, purpose, and tags, grouped by editable purpose category, and have an offline preview with source and install-command details.
 - The project workspace uses a small set of clear destinations: **Overview**, **Branches**, **Commits**, **Pull Requests**, and **Issues**. Contributors and activity appear in context in the overview and activity views.
 - Make the branch/commit graph the project’s main visual. Prefer source-linked branch, commit, PR, and status views over generic analytics charts. Keep remote GitHub state and local checkout state visibly labeled.
 - Keep the hierarchy understandable when many repositories or branches exist: search/filter the project list; show branch and commit collections inside the selected project view rather than expanding every commit into the global sidebar.
@@ -32,6 +33,7 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - Show recent local/GitHub projects and at least five recently updated PRs with project identity and PR state. Show More only when additional PRs are available; More opens the full recent-PR list. More on projects opens a searchable recent-project picker.
 - Provide global, single-select animated background themes within workspace content areas; keep the app header unthemed. The default Pixel Mosaic fills the workspace with a large drifting pixel field inspired by the user reference; Terminal Stream renders a flowing ASCII luminance field, and Aurora Wave is one continuous pixelated wave rising from the bottom and cresting toward the top with subtle flowing glow and sparse sparkles. Respect Reduce Motion. Each theme has its own saved color choice from Aqua, Violet, Amber, and Emerald; Terminal Stream and Aurora Wave colors adapt to their selected palettes. The Overview right panel configures themes and no longer displays a commits heatmap.
 - Add a header **+** that opens a right-docked tool panel with an embedded browser, an interactive local terminal, a Codex launcher that starts the installed `codex` CLI in the selected project folder, a new-tab launcher, and the three most recently opened local or cloned projects. The Codex launcher uses the Codex logo. The main workspace resizes beside the panel without overlap. Selecting a project changes the main workspace and leaves the panel open. Tool tabs can be opened and closed independently; closing the last tab closes the panel. Full-screen expands the selected tool to the app content area.
+- Add a compact **Quick Summary** reachable from a notch-aware panel on notched Macs and a menu bar popover on every Mac. The collapsed panel aligns flush with the screen top and camera notch, expands downward when clicked, and minimizes from its header; the Settings toggle enables or disables the notch panel. Fit screen width and respect Reduce Motion. Show recent PR activity, total open PR count, Workspace/Skills/Terminal/Codex shortcuts, and disabled AI usage and Tasks rows marked Coming soon. Animate new/updated PR and completed terminal command events in the panel. Keep event labels local and omit terminal output.
 
 ## V1 scope
 
@@ -59,6 +61,17 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - Give local projects a separate sidebar section and local-specific workspace with **Overview** and **Files**. The file view lists visible folder contents and allows folder navigation. Selecting a text file opens a bounded, read-only preview; Markdown uses the same Preview/Markdown/Expand controls as commit messages. Do not follow symlinks or show hidden files. Files cannot be edited. A user-launched terminal can execute commands with normal macOS account permissions; the selected project is its starting directory, not a filesystem restriction.
 - A local folder and a GitHub repository are separate entries, including when the folder's Git remote matches that repository.
 
+### Skills library
+
+- Add a top-level Skills destination that can be used while offline. Each entry shows its name, description/purpose, tags, suggested/editable category, source, stored location, and any supported install command.
+- After a clone or when the user refreshes a repository scan, find `SKILL.md` files and skill links advertised by Markdown documents. Show advertised links as candidates; import only when selected. The user can also choose a local skill folder or add a GitHub source URL.
+- Search the saved catalog locally. Online GitHub code search happens only after the user submits a search and uses the signed-in GitHub token; adding a source is also user initiated. Do not crawl links recursively.
+- Keep a local offline copy of imported skill folders and GitHub skills in Application Support. Copy regular files only, excluding hidden paths and symlinks; limit each import to 100 files, 2 MB per file, and 10 MB total. Retain an offline copy when its source disappears. Refresh replaces the stored source files and metadata while preserving user-edited categories.
+- Offline preview renders UTF-8 text up to the existing 2 MB preview limit; other stored files remain listed but are marked unavailable for preview.
+- Suggest categories deterministically from the skill's name, description, and tags. Let the user change the category. Skill content and install commands are untrusted data and are displayed as text.
+- Show an install command only when the source documents it or when the source is GitHub and the known `skills` CLI command can be formed. Show provenance and a Copy action. Never run an install command.
+- Do not transmit imported local skill files to AI or another provider. Online search sends the submitted query to GitHub. GitHub source access uses existing read access; do not add permissions or write operations for the library.
+
 ### GitHub project details
 
 - **Pull requests:** list open and closed PRs; show title, author, reviewers, labels, checks/statuses, changed files and available patches, description, reviews, inline review comments, conversation comments, state, and merge time. Create a PR from branches already pushed to GitHub. On open PRs, allow a comment, a comment-only/approve/request-changes review, or a merge after confirmation. Show each project’s open PR count in the sidebar.
@@ -78,8 +91,15 @@ After signing in to GitHub, the user can discover repositories they are permitte
 ### Detection and notifications
 
 - On launch/foreground, refresh compact PR summaries across all accessible repositories by default and report newly discovered or changed PRs. Fetch full PR conversations and changed-file lists when the user opens a PR.
-- While the app is running, poll GitHub at a configurable interval and show in-app activity. Ask for macOS notification permission before sending system notifications.
+- While the app is running, poll GitHub every minute by default, configurable to five or fifteen minutes, and show in-app activity. Stagger repository requests and back off at least five minutes after partial/API failures or rate limits. System notifications are off by default and require an explicit Settings toggle followed by macOS permission; Quick Summary popups remain in-app.
 - Pause polling when the app is quit or offline; show last successful refresh and a retry action. No webhook server is part of v1.
+
+### Quick Summary
+
+- Keep the summary brief: show total open PRs and up to three recent PR rows with source links, plus shortcuts to Workspace, Skills, Terminal, and Codex.
+- On notched displays, show a compact black cap centered over the measured camera notch, with short status glances on each side and curved shoulders joining the screen top. Keep it flush with the display top, within the top safe area, and clamp its measured-notch-based width to the screen. Clicking the collapsed notch expands the summary downward with the selected workspace theme below a camera-safe strip. Two floating tool pills beneath the summary switch between the summary, searchable Skills preview, embedded Terminal, and Codex inside the notch. Shell sessions stay mounted when switching tools or collapsing the notch; only the explicit Open Workspace button foregrounds the full app. The minimize control returns it to the idle notch. Click-away and Escape collapse it. Respect Reduce Motion. On other displays, use the same content in a persistent menu bar entry.
+- Animate new/updated PRs and completed interactive shell commands into the summary. PR change detection compares up to eight most recently updated PRs per repository before limiting the visible overview to eight total. Terminal hooks are scoped to the child shell, write no user shell configuration, retain only the executable label and exit state, and never retain command arguments or output. Optional macOS notifications include new/updated PRs and command completion only after the user enables them in Settings and grants OS permission.
+- AI usage preview and Tasks are disabled “Coming soon” rows; they do not send data or create tasks.
 
 ## User stories
 
@@ -103,6 +123,8 @@ After signing in to GitHub, the user can discover repositories they are permitte
 18. As the user, I want AI explanations to use selected GitHub data and link to evidence so that summaries remain reviewable.
 19. As the user, I want to control AI use and notifications so that the app’s data handling matches my preferences.
 20. As the user, I want to create a PR from a pushed branch, inspect closed PR files and discussion, comment or submit a review on an open PR, and merge an open PR after confirmation.
+21. As the user, I want to collect skills from cloned repositories, selected folders, and GitHub so that I can search and preview them offline by purpose.
+22. As the user, I want to glance at PR activity and open counts from the notch or menu bar and jump to common tools without foregrounding the full workspace.
 
 ## Acceptance criteria
 
@@ -123,6 +145,11 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - Users can add any folder explicitly to Local Projects; local folders have a separate visual identity and Overview/Files pages. The Files page navigates visible folders and opens text files in a bounded, read-only preview; Markdown files share the commit message Preview/Markdown controls. Hidden files and symlinks are not opened, and removing an entry does not delete its files.
 - The welcome Overview provides New/Open/Clone actions, recent projects, at least five recent PRs and a full-list action when more are available, a searchable recent-project picker, and global selectable backgrounds with independently persisted per-theme Aqua, Violet, Amber, or Emerald colors that respect Reduce Motion.
 - The header tool panel docks at the right and can be resized across the available width while preserving a usable workspace area. Its width adapts to window resizing and uses the full content area when side-by-side layout no longer fits. It provides an embedded HTTP(S) browser, interactive local terminal, Codex launcher using the installed CLI and Codex logo, recent project shortcuts, multiple retained tabs, last-tab close behavior, and full content-area preview.
+- Quick Summary exposes recent PRs, open-PR total, and Workspace/Skills/Terminal/Codex shortcuts from the menu bar and notch-aware panel. The collapsed notch aligns with the camera housing and expands downward; its header, click-away, and Escape minimize it. Settings controls the notch panel, which adapts to screen width and Reduce Motion; screen changes refresh measurements. PR checks default to one minute, are configurable to five or fifteen minutes, and back off on API failures. Terminal completion labels are local and contain no output. macOS notifications are opt-in.
+- The Skills page supports offline catalog search by name, purpose, and tags; category suggestions and user edits; automatic SKILL.md scans after cloning and on manual refresh; advertised GitHub links and user-selected folders/URLs; user-submitted GitHub search; source and stored-location details; and offline copies that survive source loss. Copies exclude hidden paths and symlinks. Install commands are attributed, copyable, and never executed. UTF-8 preview is limited to 2 MB per file.
+- The Skills page is searchable offline, can submit a GitHub code search on user action, scans clones after clone and manual refresh, shows advertised links as import candidates, supports manual folder/URL import, suggests editable categories, and retains local offline copies when source access is lost. Hidden files and symlinks are excluded from copies. Install commands are attributed and copyable but never executed.
+- Quick Summary works from a persistent menu bar popover and, when a display reports a physical notch, a top-anchored panel that expands on click and minimizes from its header. It fits narrow displays, collapses on click-away or Escape, refreshes display measurements, exposes recent PRs/counts and four shortcuts, and animates activity while respecting Reduce Motion. AI and Tasks remain disabled placeholders. Polling is configurable with a one-minute default and backs off on API failures. System notifications are optional and require explicit Settings and macOS permission.
+- GitHub search and file reads are GET-only and use the existing public access or repository Contents read permission. No additional GitHub permission or repository mutation is introduced.
 
 ## Out of scope for v1
 
@@ -133,6 +160,7 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - Building/hosting previews. The explicit Browser tool may embed ordinary user-requested HTTP(S) pages but has no native bridge into app data or actions.
 - Webhook infrastructure, team administration, shared dashboards, and organization analytics.
 - AI code review or reading local/private source files for model prompts.
+- Installing, updating, or syncing skills into agent tools. The library only catalogs and previews skills.
 - Automatically cloning every accessible repository or deleting local clones.
 
 ## Decisions still needed before implementation

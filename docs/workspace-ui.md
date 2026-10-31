@@ -10,6 +10,16 @@ The Overview card centers its heading, repository description, and history summa
 
 The sidebar shows the signed-in GitHub login. The app reads it from the authenticated, read-only GraphQL `viewer { login }` field. Sign out clears the displayed login with the local session state; no additional permission scope is needed.
 
+## Skills library
+
+The sidebar's **Skills** destination uses the same full-row click and selected-row treatment as other destinations. Its catalog and detail cards follow the global surface-opacity setting, and text follows the workspace font-size setting. Search inputs and primary actions have larger hit targets and spacing. The page searches the saved catalog offline by name, description/purpose, tags, and category. When the catalog is empty, it shows an explicit empty-state message and keeps the detail pane out of the layout. Narrow windows show one pane at a time; selecting a skill opens its detail with a Back to Skills control. A submitted GitHub search looks for skill instruction files; entering a GitHub URL either imports the selected skill folder or lists skills found in that repository. Successful clones scan for skill instruction files and offer GitHub skill links advertised from Markdown documents. The scan button repeats that work across registered clones.
+
+Adding a local folder or a GitHub result stores regular files under Application Support, capped at 100 files, 2 MB per file, and 10 MB total. Hidden paths and symlinks are skipped. If a source disappears, its saved copy remains available and the detail view labels the source unavailable. Refresh replaces the source files but keeps a category the user changed. The preview renders UTF-8 text up to 2 MB; larger or binary files stay in the copy and are listed as unavailable.
+
+The detail view shows the source URL, stored path, tags, editable category, and an attributed install command when the source documents one or the Skills CLI command can be derived. Commands are copy-only and are never executed. Skill content and commands are treated as untrusted text and are not sent to an AI provider.
+
+Online search runs only after the user submits a query and uses the signed-in GitHub token. Search requests and selected-source reads are GET-only; no GitHub permission or repository write is added.
+
 ## Verification
 
 Run the macOS app and UI suite with:
