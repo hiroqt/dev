@@ -37,6 +37,11 @@ private actor RepositoryProviderStub: GitHubRepositoryProviding {
     }
 }
 
+private struct RepositoryListProviderStub: GitHubRepositoryProviding {
+    let result: [GitHubRepository]
+    func repositories(accessToken: String) async throws -> [GitHubRepository] { result }
+}
+
 private struct ContributionProviderStub: GitHubContributionProviding {
     let activity: GitHubContributionSummary
     func contributions(year: Int, accessToken: String) async throws -> GitHubContributionSummary { activity }
@@ -64,6 +69,16 @@ private actor ProjectHistoryProviderStub: GitHubProjectHistoryProviding {
     func openPullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest] { openRequests }
 }
 
+private actor RecentHistoryProviderStub: GitHubProjectHistoryProviding {
+    private var requests: [Int64: [GitHubPullRequest]]
+    init(requests: [Int64: [GitHubPullRequest]]) { self.requests = requests }
+    func set(_ requests: [GitHubPullRequest], for repositoryID: Int64) { self.requests[repositoryID] = requests }
+    func branches(repository: GitHubRepository, accessToken: String) async throws -> [GitHubBranch] { [] }
+    func commits(repository: GitHubRepository, branch: String, accessToken: String) async throws -> [GitHubCommit] { [] }
+    func pullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest] { requests[repository.id] ?? [] }
+    func openPullRequests(repository: GitHubRepository, accessToken: String) async throws -> [GitHubPullRequest] { requests[repository.id] ?? [] }
+}
+
 private struct FixedTokenStore: GitHubTokenStoring {
     let token: GitHubToken?
     func load() throws -> GitHubToken? { token }
@@ -72,6 +87,164 @@ private struct FixedTokenStore: GitHubTokenStoring {
 }
 
 struct GitHubBackendTests {
+    @Test func parsesSkillMetadataAndSuggestsPurposeCategories() {
+        let markdown = """
+        ---
+        name: Caveman
+        description: Reduce token usage for coding agents.
+        tags: [tokens, optimization]
+        ---
+        Follow the task instructions.
+        """
+        let metadata = SkillMetadata.parse(markdown, fallbackName: "folder")
+
+        #expect(metadata.name == "Caveman")
+        #expect(metadata.description == "Reduce token usage for coding agents.")
+        #expect(metadata.tags == ["optimization", "tokens"])
+        #expect(metadata.documentedCommand == nil)
+        #expect(SkillCategory.suggestion(name: metadata.name, description: metadata.description, tags: metadata.tags) == "Token Optimization")
+    }
+
+    @Test func scannedSkillsCopyOfflineFilesAndKeepCopyWhenSourceDisappears() async throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let skillFolder = temporaryRoot.appending(path: "skills/graphify", directoryHint: .isDirectory)
+        let libraryRoot = temporaryRoot.appending(path: "library", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: skillFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try """
+        ---
+        name: Graphify
+        description: Map code relationships.
+        tags:
+          - graph
+        ---
+        npx skills add arnel/graphify --skill graphify
+        """.write(to: skillFolder.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
+        try "Offline reference".write(to: skillFolder.appending(path: "reference.md"), atomically: true, encoding: .utf8)
+        try ".hidden".write(to: skillFolder.appending(path: ".secret"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: skillFolder.appending(path: "linked.md"), withDestinationURL: skillFolder.appending(path: "reference.md"))
+
+        let library = SkillsLibraryRepository(root: libraryRoot)
+        _ = try await library.scanRepository(temporaryRoot, repository: "arnel/dev", branch: "main")
+        let entry = try #require(await library.load().first)
+        #expect(entry.name == "Graphify")
+        #expect(entry.category == "Development")
+        #expect(entry.installCommand == "npx skills add arnel/graphify --skill graphify")
+        #expect(entry.files.sorted() == ["SKILL.md", "reference.md"])
+        #expect(FileManager.default.fileExists(atPath: entry.folderURL.appending(path: "reference.md").path))
+
+        try FileManager.default.removeItem(at: skillFolder)
+        _ = try await library.scanRepository(temporaryRoot, repository: "arnel/dev", branch: "main")
+        let retained = try #require(await library.load().first)
+        #expect(retained.state == .unavailable)
+        #expect(FileManager.default.fileExists(atPath: retained.folderURL.appending(path: "reference.md").path))
+    }
+
+    @Test func githubSkillSearchUsesSubmittedQueryAndDownloadsOnlyRegularSkillFiles() async throws {
+        let markdown = Data("---\nname: Demo\n---\n".utf8).base64EncodedString()
+        let reference = Data("offline reference".utf8).base64EncodedString()
+        let transport = StubTransport([
+            .init(statusCode: 200, data: Data(#"{"items":[{"name":"SKILL.md","path":"skills/demo/SKILL.md","html_url":"https://github.com/owner/repo/blob/main/skills/demo/SKILL.md","repository":{"full_name":"owner/repo","default_branch":"main","description":"A demo skill"}}]}"#.utf8), headers: [:]),
+            .init(statusCode: 200, data: Data(#"{"truncated":false,"tree":[{"path":"skills/demo/SKILL.md","mode":"100644","type":"blob","size":19,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"path":"skills/demo/reference.md","mode":"100644","type":"blob","size":17,"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},{"path":"skills/demo/.hidden","mode":"100644","type":"blob","size":8,"sha":"cccccccccccccccccccccccccccccccccccccccc"},{"path":"skills/demo/link.md","mode":"120000","type":"blob","size":8,"sha":"dddddddddddddddddddddddddddddddddddddddd"}]}"#.utf8), headers: [:]),
+            .init(statusCode: 200, data: Data(#"{"encoding":"base64","content":"\#(markdown)"}"#.utf8), headers: [:]),
+            .init(statusCode: 200, data: Data(#"{"encoding":"base64","content":"\#(reference)"}"#.utf8), headers: [:])
+        ])
+        let api = GitHubSkillSearchAPI(transport: transport)
+
+        let candidates = try await api.search("design skill", accessToken: "search-token")
+        #expect(candidates.first?.name == "demo")
+        #expect(candidates.first?.repository == "owner/repo")
+        let downloaded = try await api.download(try #require(candidates.first), accessToken: nil)
+        defer { try? FileManager.default.removeItem(at: downloaded.folder.deletingLastPathComponent()) }
+        let files = Set((try FileManager.default.contentsOfDirectory(atPath: downloaded.folder.path)))
+        #expect(files == ["SKILL.md", "reference.md"])
+        let requests = await transport.requests()
+        #expect(URLComponents(url: requests[0].url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "q" })?.value == "design skill filename:SKILL.md")
+        #expect(requests.allSatisfy { $0.httpMethod == "GET" && $0.url?.host == "api.github.com" })
+        #expect(requests.first?.value(forHTTPHeaderField: "Authorization") == "Bearer search-token")
+        #expect(requests.dropFirst().allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == nil })
+    }
+
+    @Test func githubSkillSearchRequiresSignInAndBoundsSkillDownloads() async throws {
+        let emptyTransport = StubTransport([])
+        do {
+            _ = try await GitHubSkillSearchAPI(transport: emptyTransport).search("design")
+            Issue.record("Expected GitHub skill search to require authentication")
+        } catch let error as SkillsLibraryError {
+            if case .githubSignInRequired = error { } else { Issue.record("Unexpected error: \(error)") }
+        }
+        #expect(await emptyTransport.requests().isEmpty)
+
+        let transport = StubTransport([
+            .init(statusCode: 200, data: Data(#"{"truncated":false,"tree":[{"path":"skills/large/SKILL.md","mode":"100644","type":"blob","size":2000001,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"#.utf8), headers: [:])
+        ])
+        let api = GitHubSkillSearchAPI(transport: transport)
+        let candidate = try #require(GitHubSkillSearchAPI.candidate(from: "https://github.com/owner/repo/tree/main/skills/large"))
+        do {
+            _ = try await api.download(candidate, accessToken: "token")
+            Issue.record("Expected oversized skill to be rejected")
+        } catch let error as SkillsLibraryError {
+            if case .skillDownloadTooLarge = error { } else { Issue.record("Unexpected error: \(error)") }
+        }
+        #expect(await transport.requests().count == 1)
+    }
+
+    @Test func localSkillImportRejectsFilesAboveTheCopyLimit() async throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let skillFolder = temporaryRoot.appending(path: "large-skill", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: skillFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        try Data(repeating: 0, count: 2_000_001).write(to: skillFolder.appending(path: "large.bin"))
+        let library = SkillsLibraryRepository(root: temporaryRoot.appending(path: "library", directoryHint: .isDirectory))
+
+        do {
+            _ = try await library.importFolder(skillFolder)
+            Issue.record("Expected oversized local skill file to be rejected")
+        } catch let error as SkillsLibraryError {
+            if case .skillDownloadTooLarge = error { } else { Issue.record("Unexpected error: \(error)") }
+        }
+        #expect(await library.load().isEmpty)
+    }
+
+    @Test @MainActor func tracksRecentPullRequestChangesOutsideTheEightRowOverview() async throws {
+        let firstRepository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 81).utf8))
+        let secondRepository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 82).utf8))
+        func pullRequest(_ repositoryID: Int, _ number: Int, _ month: String) throws -> GitHubPullRequest {
+            let json = #"{"number":\#(number),"title":"PR \#(number)","state":"open","body":"","html_url":"https://github.com/owner/repo-\#(repositoryID)/pull/\#(number)","updated_at":"2026-\#(month)-01T12:00:00Z","user":{"login":"octocat"}}"#
+            return try JSONDecoder().decode(GitHubPullRequest.self, from: Data(json.utf8))
+        }
+        let firstRequests = try (1...8).map { try pullRequest(81, $0, "10") }
+        var secondRequests = try (1...8).map { try pullRequest(82, $0, String(format: "%02d", $0)) }
+        let history = RecentHistoryProviderStub(requests: [81: firstRequests, 82: secondRequests])
+        let repositories = RepositoryListProviderStub(result: [firstRepository, secondRepository])
+        let tokens = FixedTokenStore(token: GitHubToken(accessToken: "keychain-token", refreshToken: nil, expiresAt: nil))
+        let store = WorkspaceStore(clientID: "client-id", api: repositories, historyAPI: history, viewerAPI: ViewerProviderStub(), tokenStore: tokens)
+        let notificationsWereEnabled = UserDefaults.standard.bool(forKey: "quickSummarySystemNotificationsEnabled")
+        UserDefaults.standard.set(false, forKey: "quickSummarySystemNotificationsEnabled")
+        defer { UserDefaults.standard.set(notificationsWereEnabled, forKey: "quickSummarySystemNotificationsEnabled") }
+
+        await store.restoreSession()
+        #expect(store.repositories.count == 2)
+        for _ in 0..<100 {
+            if store.overviewPullRequests.count == 8 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(store.overviewPullRequests.count == 8)
+
+        secondRequests[0] = try pullRequest(82, 1, "02")
+        await history.set(secondRequests, for: secondRepository.id)
+        await store.loadOverviewPullRequests()
+
+        #expect(store.summaryEvents.contains { $0.title.contains("repo-82 #1") })
+    }
+
+    @Test func githubSkillURLAcceptsOnlyGitHubSources() {
+        #expect(GitHubSkillSearchAPI.candidate(from: "https://github.com/owner/repo/tree/main/skills/demo")?.path == "skills/demo/SKILL.md")
+        #expect(GitHubSkillSearchAPI.candidate(from: "https://github.com/owner/repo/blob/main/skills/demo/SKILL.md")?.path == "skills/demo/SKILL.md")
+        #expect(GitHubSkillSearchAPI.candidate(from: "https://example.com/owner/repo/tree/main/skills/demo") == nil)
+        #expect(GitHubSkillSearchAPI.candidate(from: "https://user@github.com/owner/repo") == nil)
+    }
+
     @Test func localProjectBookmarkResolvesTheSelectedFolder() throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

@@ -506,7 +506,7 @@ struct WorkspaceToolsPanel: View {
                     Group {
                         switch tab.kind {
                         case .browser: EmbeddedBrowserTab()
-                        case .terminal: EmbeddedTerminalTab(directory: tab.workingDirectory, initialCommand: tab.initialCommand)
+                        case .terminal: EmbeddedTerminalTab(store: store, directory: tab.workingDirectory, initialCommand: tab.initialCommand)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -792,7 +792,8 @@ private func safeBrowserURL(_ value: String) -> URL? {
     return url
 }
 
-private struct EmbeddedTerminalTab: View {
+struct EmbeddedTerminalTab: View {
+    @Bindable var store: WorkspaceStore
     let directory: URL?
     let initialCommand: String?
 
@@ -804,12 +805,13 @@ private struct EmbeddedTerminalTab: View {
                 Spacer()
             }
             .padding(9).overlay(alignment: .bottom) { Divider() }
-            LocalTerminalRepresentable(directory: directory, initialCommand: initialCommand)
+            LocalTerminalRepresentable(store: store, directory: directory, initialCommand: initialCommand)
         }
     }
 }
 
 private struct LocalTerminalRepresentable: NSViewRepresentable {
+    @Bindable var store: WorkspaceStore
     let directory: URL?
     let initialCommand: String?
     @AppStorage("contentAreaOpacity") private var surfaceOpacity = 1.0
@@ -824,7 +826,7 @@ private struct LocalTerminalRepresentable: NSViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(directory: directory, initialCommand: initialCommand) }
+    func makeCoordinator() -> Coordinator { Coordinator(store: store, directory: directory, initialCommand: initialCommand) }
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         let terminal = LocalProcessTerminalView(frame: .zero)
         terminal.font = .monospacedSystemFont(ofSize: terminalFontSize, weight: .regular)
@@ -843,21 +845,38 @@ private struct LocalTerminalRepresentable: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
+        private let store: WorkspaceStore
         private let directory: URL?
         private let initialCommand: String?
         private var hasDirectoryAccess = false
-        init(directory: URL?, initialCommand: String?) {
+        private var activityMonitor: ShellCommandActivityMonitor?
+        private var reportedInitialCommand = false
+        init(store: WorkspaceStore, directory: URL?, initialCommand: String?) {
+            self.store = store
             self.directory = directory
             self.initialCommand = initialCommand
         }
         func start(in terminal: LocalProcessTerminalView) {
             if let directory { hasDirectoryAccess = directory.startAccessingSecurityScopedResource() }
             let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-            let args = initialCommand.map { ["-l", "-i", "-c", $0] } ?? ["-l"]
-            terminal.startProcess(executable: shell, args: args, currentDirectory: directory?.path ?? NSHomeDirectory())
+            let monitor = ShellCommandActivityMonitor { [weak self] command, exitCode in
+                guard let self else { return }
+                self.store.recordCommandActivity(command: command, exitCode: exitCode)
+                if command == self.initialCommand { self.reportedInitialCommand = true }
+            }
+            activityMonitor = monitor
+            var configuration = monitor.launchConfiguration(shellPath: shell)
+            if let initialCommand { configuration.args += ["-c", initialCommand] }
+            terminal.startProcess(executable: shell, args: configuration.args, environment: configuration.environment, currentDirectory: directory?.path ?? NSHomeDirectory())
         }
         nonisolated func processTerminated(source: TerminalView, exitCode: Int32?) {
-            Task { @MainActor in self.releaseDirectoryAccess() }
+            Task { @MainActor in
+                if let initialCommand = self.initialCommand, !self.reportedInitialCommand {
+                    self.store.recordCommandActivity(command: initialCommand, exitCode: exitCode)
+                }
+                self.activityMonitor?.stop()
+                self.releaseDirectoryAccess()
+            }
         }
         nonisolated func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
         nonisolated func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}

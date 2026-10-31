@@ -1,9 +1,11 @@
 import Foundation
 import Observation
+import UserNotifications
 
 enum Destination: Hashable {
     case allProjects
     case activity
+    case skills
     case settings
     case project(Int64, ProjectPage)
     case localProject(UUID, LocalProjectPage)
@@ -25,6 +27,27 @@ struct OverviewPullRequest: Identifiable, Sendable {
     let repository: GitHubRepository
     let request: GitHubPullRequest
     var id: String { "\(repository.id):\(request.number)" }
+}
+
+struct WorkspaceSummaryEvent: Identifiable, Equatable {
+    enum Kind: Equatable { case pullRequest, command }
+    let id = UUID()
+    let kind: Kind
+    let title: String
+    let detail: String
+    let date = Date()
+    let url: URL?
+}
+
+enum WorkspaceQuickAction: Equatable {
+    case workspace, skills, terminal, codex
+}
+
+enum WorkspaceCommandLabel {
+    static func firstToken(_ command: String) -> String {
+        guard let token = command.split(whereSeparator: \.isWhitespace).first.map(String.init), !token.contains("=") else { return "Command" }
+        return URL(fileURLWithPath: token).lastPathComponent
+    }
 }
 
 enum LocalProjectPage: String, CaseIterable, Hashable, Identifiable {
@@ -138,6 +161,7 @@ final class WorkspaceStore {
     private let tokenStore: any GitHubTokenStoring
     private let clientID: String?
     private let cloner = LocalGitCloner()
+    let skillsLibrary = SkillsLibraryStore()
 
     private var signInTask: Task<Void, Never>?
     private(set) var repositories: [GitHubRepository] = []
@@ -150,6 +174,9 @@ final class WorkspaceStore {
     private(set) var localProjectError: String?
     private(set) var recentProjectKeys = UserDefaults.standard.stringArray(forKey: "recentProjectKeys") ?? []
     private(set) var overviewPullRequests: [OverviewPullRequest] = []
+    private(set) var summaryEvents: [WorkspaceSummaryEvent] = []
+    var requestedQuickAction: WorkspaceQuickAction?
+    var openWorkspaceWindow: (() -> Void)?
     private(set) var overviewPullRequestsLoading = false
     private(set) var overviewPullRequestsError: String?
     private(set) var signedInUsername: String?
@@ -185,6 +212,8 @@ final class WorkspaceStore {
     private var historyRepositoryID: Int64?
     private var branchCommitRequestID = UUID()
     private var overviewPullRequestRequestID = UUID()
+    private var summaryPollingTask: Task<Void, Never>?
+    private var knownSummaryPullRequests: [String: String]?
     private(set) var contributionActivity: GitHubContributionSummary?
     private(set) var contributionActivityYear: Int?
     private(set) var contributionActivityLoading = false
@@ -193,6 +222,7 @@ final class WorkspaceStore {
     private(set) var connectionState: GitHubConnectionState = .checking
     private(set) var authorization: GitHubDeviceAuthorization?
     var searchText = ""
+    var githubAccessToken: String? { (try? tokenStore.load())?.accessToken }
 
     init(
         clientID: String? = GitHubConfiguration.clientID,
@@ -398,6 +428,7 @@ final class WorkspaceStore {
             }
             guard overviewPullRequestRequestID == requestID else { return }
             requests += overviewPullRequests.filter { failedRepositoryIDs.contains($0.repository.id) }
+            recordPullRequestChanges(requests)
             overviewPullRequests = requests.sorted { $0.request.updatedAt > $1.request.updatedAt }.prefix(8).map { $0 }
             overviewPullRequestsError = partial ? "Some repositories could not be refreshed." : nil
         } catch {
@@ -495,6 +526,49 @@ final class WorkspaceStore {
     private func rememberClone(_ folder: URL, for repository: GitHubRepository) {
         clonedRepositoryPaths[repository.id] = folder.path
         UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: clonedRepositoryPaths.map { (String($0.key), $0.value) }), forKey: "clonedRepositoryPaths")
+        Task {
+            await skillsLibrary.scan(folder: folder, repository: repository.fullName, branch: repository.defaultBranch ?? "main")
+        }
+    }
+
+    func scanSkillRepository(_ repository: GitHubRepository) async {
+        guard let path = clonedRepositoryPaths[repository.id] else { return }
+        await skillsLibrary.scan(folder: URL(fileURLWithPath: path, isDirectory: true), repository: repository.fullName, branch: repository.defaultBranch ?? "main")
+    }
+
+    func scanAllSkillRepositories() async {
+        for repository in clonedRepositories { await scanSkillRepository(repository) }
+    }
+
+    func addSkillFolder(_ folder: URL) async { await skillsLibrary.addFolder(folder) }
+
+    func searchGitHubSkills(_ query: String) async { await skillsLibrary.searchGitHub(query, accessToken: githubAccessToken) }
+
+    func addGitHubSkill(_ candidate: SkillCandidate) async {
+        let token = try? tokenStore.load()?.accessToken
+        await skillsLibrary.addGitHub(candidate, accessToken: token ?? nil)
+    }
+
+    func addGitHubSkillURL(_ value: String) async {
+        let token = try? tokenStore.load()?.accessToken
+        await skillsLibrary.addGitHubURL(value, accessToken: token ?? nil)
+    }
+
+    func refreshSkill(_ entry: SkillEntry) async {
+        if entry.sourceKey.hasPrefix("repo:") {
+            let identity = String(entry.sourceKey.dropFirst("repo:".count)).split(separator: ":", maxSplits: 1).first.map(String.init)
+            if let repository = clonedRepositories.first(where: { $0.fullName.caseInsensitiveCompare(identity ?? "") == .orderedSame }) {
+                await scanSkillRepository(repository)
+            } else if let sourceURL = entry.sourceURL {
+                await skillsLibrary.addGitHubURL(sourceURL, accessToken: githubAccessToken)
+            } else {
+                await skillsLibrary.repositoryUnavailable(entry.sourceKey)
+            }
+        } else if let folder = entry.sourceFolder {
+            await skillsLibrary.addFolder(URL(fileURLWithPath: folder, isDirectory: true))
+        } else if let sourceURL = entry.sourceURL {
+            await skillsLibrary.addGitHubURL(sourceURL, accessToken: githubAccessToken)
+        }
     }
 
     func loadProjectHistory(repository: GitHubRepository, forceRefresh: Bool = false) async {
@@ -808,9 +882,104 @@ final class WorkspaceStore {
         }
     }
 
+    func startSummaryPolling() {
+        guard summaryPollingTask == nil, (try? tokenStore.load()) != nil else { return }
+        summaryPollingTask = Task { [weak self] in
+            var nextInterval = self?.summaryPollingIntervalSeconds ?? 60
+            while !Task.isCancelled {
+                guard let self, !Task.isCancelled else { break }
+                do { try await Task.sleep(for: .seconds(nextInterval)) } catch { break }
+                let refreshed = await self.refreshSummaryData()
+                nextInterval = refreshed ? self.summaryPollingIntervalSeconds : max(300, self.summaryPollingIntervalSeconds)
+            }
+        }
+    }
+
+    var summaryPollingIntervalSeconds: Int {
+        let stored = UserDefaults.standard.integer(forKey: "quickSummaryPollingIntervalSeconds")
+        return stored == 0 ? 60 : min(900, max(60, stored))
+    }
+
+    func setSummarySystemNotificationsEnabled(_ enabled: Bool) async -> Bool {
+        guard enabled else {
+            UserDefaults.standard.set(false, forKey: "quickSummarySystemNotificationsEnabled")
+            return true
+        }
+        do {
+            let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            UserDefaults.standard.set(granted, forKey: "quickSummarySystemNotificationsEnabled")
+            return granted
+        } catch {
+            UserDefaults.standard.set(false, forKey: "quickSummarySystemNotificationsEnabled")
+            return false
+        }
+    }
+
+    func requestQuickAction(_ action: WorkspaceQuickAction) {
+        requestedQuickAction = action
+    }
+
+    func recordCommandActivity(command: String, exitCode: Int32?) {
+        let label = WorkspaceCommandLabel.firstToken(command)
+        addSummaryEvent(WorkspaceSummaryEvent(
+            kind: .command,
+            title: label,
+            detail: exitCode == 0 ? "Completed" : "Exited with an error",
+            url: nil
+        ))
+    }
+
+    private func addSummaryEvent(_ event: WorkspaceSummaryEvent) {
+        summaryEvents.insert(event, at: 0)
+        summaryEvents = Array(summaryEvents.prefix(12))
+        guard UserDefaults.standard.bool(forKey: "quickSummarySystemNotificationsEnabled") else { return }
+        let content = UNMutableNotificationContent()
+        content.title = event.kind == .pullRequest ? "Pull request activity" : event.title
+        content.body = event.kind == .pullRequest ? "\(event.title): \(event.detail)" : event.detail
+        content.sound = .default
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: event.id.uuidString, content: content, trigger: nil))
+    }
+
+    private func refreshSummaryData() async -> Bool {
+        do {
+            guard let token = try tokenStore.load() else { return false }
+            try await fetchRepositories(using: token, refreshSummaries: false)
+            if let activeToken = try? await currentAccessToken() {
+                await refreshOpenPullRequestCounts(for: repositories, accessToken: activeToken)
+                await loadOverviewPullRequests()
+            }
+            return overviewPullRequestsError == nil
+        } catch {
+            setFailure(error)
+            return false
+        }
+    }
+
+    private func recordPullRequestChanges(_ requests: [OverviewPullRequest]) {
+        let snapshot = Dictionary(uniqueKeysWithValues: requests.map { ($0.id, $0.request.updatedAt) })
+        guard let knownSummaryPullRequests else {
+            self.knownSummaryPullRequests = snapshot
+            return
+        }
+        for item in requests where knownSummaryPullRequests[item.id] == nil || knownSummaryPullRequests[item.id] != item.request.updatedAt {
+            let isNew = knownSummaryPullRequests[item.id] == nil
+            addSummaryEvent(WorkspaceSummaryEvent(
+                kind: .pullRequest,
+                title: isNew ? "New PR · \(item.repository.name) #\(item.request.number)" : "PR updated · \(item.repository.name) #\(item.request.number)",
+                detail: item.request.title,
+                url: item.request.htmlURL
+            ))
+        }
+        self.knownSummaryPullRequests = snapshot
+    }
+
     func signOut() {
         do {
             try tokenStore.delete()
+            summaryPollingTask?.cancel()
+            summaryPollingTask = nil
+            knownSummaryPullRequests = nil
+            summaryEvents = []
             pullRequestCountRefreshRequestID = UUID()
             openPullRequestCounts = [:]
             repositories = []
@@ -841,6 +1010,7 @@ final class WorkspaceStore {
             try tokenStore.save(token)
             self.authorization = nil
             try await fetchRepositories(using: token)
+            startSummaryPolling()
         } catch is CancellationError {
             authorization = nil
             connectionState = .signedOut
@@ -850,7 +1020,7 @@ final class WorkspaceStore {
         }
     }
 
-    private func fetchRepositories(using storedToken: GitHubToken) async throws {
+    private func fetchRepositories(using storedToken: GitHubToken, refreshSummaries: Bool = true) async throws {
         var token = storedToken
         if let expiresAt = token.expiresAt, expiresAt <= Date().addingTimeInterval(60) {
             guard let clientID else { throw GitHubBackendError.clientNotConfigured }
@@ -863,8 +1033,11 @@ final class WorkspaceStore {
             repositories = fetched
             connectionState = .connected
             signedInUsername = try? await viewerAPI.viewerLogin(accessToken: token.accessToken)
-            Task { await refreshOpenPullRequestCounts(for: fetched, accessToken: token.accessToken) }
-            Task { await loadOverviewPullRequests() }
+            if refreshSummaries {
+                Task { await refreshOpenPullRequestCounts(for: fetched, accessToken: token.accessToken) }
+                Task { await loadOverviewPullRequests() }
+            }
+            startSummaryPolling()
         } catch {
             if repositories.isEmpty {
                 throw error

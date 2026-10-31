@@ -1,7 +1,43 @@
+import AppKit
 import XCTest
 
 @MainActor
 final class WorkspaceFlowTests: XCTestCase {
+    func testNotchExpansionAndFloatingTools() throws {
+        guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 24 }) else {
+            throw XCTSkip("Requires a display with a physical notch")
+        }
+        let app = XCUIApplication()
+        app.launchArguments += ["-quickSummaryEnabled", "YES"]
+        app.launch()
+        let expand = app.buttons["Open project summary"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 5))
+        let notchWidth = (screen.auxiliaryTopRightArea?.minX ?? screen.frame.midX + 90)
+            - (screen.auxiliaryTopLeftArea?.maxX ?? screen.frame.midX - 90)
+        let idleWidth = min(notchWidth + 96, screen.frame.width - 24)
+        XCTAssertLessThanOrEqual(expand.frame.width, idleWidth + 1)
+        expand.click()
+        let minimize = app.buttons["Minimize summary to notch"]
+        XCTAssertTrue(minimize.waitForExistence(timeout: 5))
+        for tool in ["workspace", "skills", "terminal", "codex"] {
+            XCTAssertTrue(app.buttons["notch-widget-\(tool)"].exists)
+        }
+        app.buttons["notch-widget-terminal"].click()
+        let terminal = app.descendants(matching: .any)["notch-terminal"]
+        XCTAssertTrue(terminal.waitForExistence(timeout: 5))
+        app.buttons["notch-widget-skills"].click()
+        XCTAssertTrue(app.textFields["notch-skills-search"].waitForExistence(timeout: 3))
+        app.buttons["notch-widget-workspace"].click()
+        XCTAssertTrue(app.buttons["Open Workspace"].exists)
+        minimize.click()
+        XCTAssertTrue(expand.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(expand.frame.width, idleWidth + 1)
+        expand.click()
+        app.buttons["notch-widget-terminal"].click()
+        XCTAssertTrue(terminal.waitForExistence(timeout: 3))
+        minimize.click()
+    }
+
     func testUnconfiguredAppShowsNoPlaceholderRepositories() throws {
         let app = XCUIApplication()
         app.launch()
@@ -63,5 +99,22 @@ final class WorkspaceFlowTests: XCTestCase {
         priorYear.click()
         app.descendants(matching: .any)["nav-settings"].click()
         XCTAssertEqual(app.otherElements["workspace-header-title"].label, "Settings")
+    }
+
+    func testSidebarOpensSkillsLibraryInExpandedAndCompactModes() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let skills = app.descendants(matching: .any)["nav-skills"]
+        XCTAssertTrue(skills.waitForExistence(timeout: 5))
+        skills.click()
+        XCTAssertTrue(app.textFields["skills-search"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["skills-add-folder"].exists)
+
+        app.buttons["sidebar-toggle"].click()
+        let compactSkills = app.buttons["compact-nav-skills"]
+        XCTAssertTrue(compactSkills.waitForExistence(timeout: 3))
+        compactSkills.click()
+        XCTAssertTrue(app.textFields["skills-search"].waitForExistence(timeout: 3))
     }
 }
