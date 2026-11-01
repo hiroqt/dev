@@ -52,11 +52,15 @@ struct BatteryHistoryView: View {
             Chart(visible) { point in
                 BarMark(x: .value("Time", point.date), y: .value("Charge", point.charge), width: 3)
                     .foregroundStyle(point.charging ? Color.green : Color.green.opacity(0.65))
-            }.chartYScale(domain: 0...100).frame(height: 130)
+            }.chartXAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel().font(.system(size: 12)) } }
+                .chartYAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel().font(.system(size: 12)) } }
+                .chartYScale(domain: 0...100).frame(height: 130)
             Text("Screen-on usage · sampled minutes per hour").workspaceFont(.headline)
             Chart(hours, id: \.date) { hour in
                 BarMark(x: .value("Hour", hour.date, unit: .hour), y: .value("Minutes", min(60, hour.minutes))).foregroundStyle(.blue)
-            }.chartYScale(domain: 0...60).frame(height: 110)
+            }.chartXAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel().font(.system(size: 12)) } }
+                .chartYAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel().font(.system(size: 12)) } }
+                .chartYScale(domain: 0...60).frame(height: 110)
             Text("Collected each minute while Computer is open. Screen-on estimates use this Mac’s main display; sleep, closed-tab and earlier history are gaps. Green indicates charge; brighter bars indicate charging. Seven days stay locally.")
                 .workspaceFont(.caption).foregroundStyle(.secondary)
             if points.isEmpty { Text("Waiting for the first battery sample…").workspaceFont(.caption).foregroundStyle(.secondary) }

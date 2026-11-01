@@ -44,7 +44,7 @@ struct SkillsLibraryView: View {
 
                             SkillDetailView(entry: selected, store: store, remove: { deleteEntry = selected })
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+                                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                         }
                     } else {
                         catalog.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -59,7 +59,7 @@ struct SkillsLibraryView: View {
                         } else {
                             ContentUnavailableView("No matching skills", systemImage: "magnifyingglass", description: Text("Change the search or category filter."))
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+                                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                         }
                     }
                 }
@@ -131,11 +131,11 @@ struct SkillsLibraryView: View {
                     .workspaceFont(.subheadline, weight: .medium)
                     .foregroundStyle(.secondary)
                 TextEditor(text: $sourceURL)
-                    .font(.system(.body, design: .monospaced))
+                    .workspaceFont(.body, design: .monospaced)
                     .scrollContentBackground(.hidden)
                     .padding(7)
                     .frame(minHeight: 78, maxHeight: 110)
-                    .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 9))
+                    .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                     .accessibilityLabel("Skill installation command")
                     .accessibilityIdentifier("skills-install-command")
                 Text("Codex, Claude Code, Copilot, Gemini, or npx skills commands. Commands are read as text and never run.")
@@ -175,7 +175,7 @@ struct SkillsLibraryView: View {
                                     .buttonStyle(.bordered)
                             }
                             .padding(9)
-                            .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 9))
+                            .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                         }
                     }
                 }
@@ -231,7 +231,7 @@ struct SkillsLibraryView: View {
         }
         .padding(20)
         .frame(maxHeight: .infinity)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func submitSource() {
@@ -278,7 +278,7 @@ private struct SkillDetailView: View {
                 Menu {
                     Button("Refresh Source") { Task { await store.refreshSkill(entry) } }
                     Button("Remove Skill…", role: .destructive, action: remove)
-                } label: { Image(systemName: "ellipsis.circle").font(.title2) }
+                } label: { Image(systemName: "ellipsis.circle").workspaceFont(.title2) }
                     .menuStyle(.borderlessButton)
                     .accessibilityLabel("Skill actions")
             }
@@ -305,7 +305,7 @@ private struct SkillDetailView: View {
                 ForEach(entry.tags, id: \.self) { tag in
                     Text(tag).workspaceFont(.caption)
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(.quaternary, in: Capsule())
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 }
             }
             HStack {
@@ -333,7 +333,7 @@ private struct SkillDetailView: View {
                     .accessibilityIdentifier("skill-copy-command")
                 }
                 .padding(12)
-                .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+                .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             }
             Divider()
             HStack(alignment: .top, spacing: 14) {
@@ -356,7 +356,7 @@ private struct SkillDetailView: View {
                         }
                     }
                     .padding(12)
-                    .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+                    .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                     .accessibilityIdentifier("skill-offline-preview")
                 } else {
                     ContentUnavailableView(

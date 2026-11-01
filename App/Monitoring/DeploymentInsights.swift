@@ -65,9 +65,10 @@ struct DeploymentInsights: View {
             if let traffic, !traffic.daily.isEmpty {
                 Chart(traffic.daily) { day in
                     BarMark(x: .value("Day (UTC)", day.date, unit: .day, calendar: utcCalendar), y: .value("Page views", day.pageviews))
-                        .foregroundStyle(Color.accentColor.gradient).cornerRadius(3)
+                        .foregroundStyle(Color.accentColor.gradient).cornerRadius(8)
                 }
-                .chartXAxis { AxisMarks(values: .automatic(desiredCount: 3)) { AxisValueLabel(format: Date.FormatStyle(timeZone: .gmt).month().day()) } }
+                .chartXAxis { AxisMarks(values: .automatic(desiredCount: 3)) { AxisValueLabel(format: Date.FormatStyle(timeZone: .gmt).month().day()).font(.system(size: 12)) } }
+                .chartYAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel().font(.system(size: 12)) } }
                 .environment(\.timeZone, .gmt)
                 .environment(\.calendar, utcCalendar)
                 .frame(height: 130)
@@ -75,7 +76,7 @@ struct DeploymentInsights: View {
                 Text("Daily page views · UTC · reported days only").workspaceFont(.caption).foregroundStyle(.secondary)
             } else {
                 VStack(spacing: 10) {
-                    Image(systemName: "chart.xyaxis.line").font(.title2)
+                    Image(systemName: "chart.xyaxis.line").workspaceFont(.title2)
                     Text("No daily series").workspaceFont(.subheadline, weight: .semibold)
                     Text("A chart appears when Vercel returns daily data.").workspaceFont(.caption).multilineTextAlignment(.center)
                 }.foregroundStyle(.secondary)

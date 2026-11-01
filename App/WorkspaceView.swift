@@ -189,17 +189,19 @@ struct WorkspaceView: View {
         .preferredColorScheme(selectedColorScheme)
         .environment(\.dynamicTypeSize, selectedDynamicTypeSize)
         .environment(\.workspaceFontScale, selectedFontScale)
-        .font(.system(size: 13 * selectedFontScale))
+        .font(.system(size: WorkspaceTypography.scaledSize(13, scale: selectedFontScale)))
         .sheet(isPresented: $showingRepositorySearch) {
             RepositorySearchSheet(store: store) { repository in
                 selection = store.isCloned(repository) ? .project(repository.id, .overview) : .allProjects
                 showingRepositorySearch = false
             }
+            .dismissOnOutsideClick()
         }
         .sheet(isPresented: $showingProviderUsage) {
             ProviderUsageSummary(integrations: providerIntegrations)
                 .padding(20)
                 .frame(width: 360)
+                .dismissOnOutsideClick()
         }
         .onChange(of: selection) { _, destination in
             store.recordRecentProject(for: destination)
@@ -429,7 +431,7 @@ struct WorkspaceView: View {
                 Image(systemName: "magnifyingglass")
                     .workspaceFont(size: 16)
                     .frame(width: 36, height: 36)
-                    .contentShape(RoundedRectangle(cornerRadius: 9))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
             .help("Search repositories")
@@ -504,11 +506,11 @@ struct WorkspaceView: View {
                     .frame(width: 36, height: 36)
                     .background {
                         if selected {
-                            RoundedRectangle(cornerRadius: 9)
+                            RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.primary.opacity(0.12))
                         }
                     }
-                    .contentShape(RoundedRectangle(cornerRadius: 9))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
                 if let badge, badge > 0 {
                     pullRequestCountBadge(badge).offset(x: 5, y: -4)
                 }
@@ -527,7 +529,7 @@ struct WorkspaceView: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 5)
             .frame(minWidth: 18, minHeight: 18)
-            .background(Color.accentColor, in: Capsule())
+            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func showRepositorySearch() {
@@ -621,7 +623,7 @@ private struct ToolPanelResizeHandle: View {
                     .frame(width: 1)
             }
             .overlay {
-                Capsule()
+                RoundedRectangle(cornerRadius: 8)
                     .fill(Color.primary.opacity(0.3))
                     .frame(width: 3, height: 36)
             }
@@ -682,7 +684,7 @@ private struct LocalProjectWorkspaceView: View {
                         .workspaceFont(size: 22)
                         .foregroundStyle(.teal)
                         .frame(width: 48, height: 48)
-                        .workspaceSurfaceBackground(.teal.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                        .workspaceSurfaceBackground(.teal.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                     VStack(alignment: .leading, spacing: 4) {
                         Text("LOCAL FOLDER").workspaceFont(.caption, weight: .bold).tracking(1.1).foregroundStyle(.teal)
                         Text(project.name).workspaceFont(.largeTitle, weight: .bold)
@@ -716,8 +718,8 @@ private struct LocalProjectWorkspaceView: View {
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity)
-                    .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.25)))
+                    .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
                 } else {
                     HStack(spacing: 7) {
                         Button(project.name) { folderComponents = [] }.buttonStyle(.plain)
@@ -760,8 +762,8 @@ private struct LocalProjectWorkspaceView: View {
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity)
-                    .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.25)))
+                    .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
                 }
             }
             .padding(28)
@@ -770,6 +772,7 @@ private struct LocalProjectWorkspaceView: View {
         }
         .sheet(item: $selectedFile) { preview in
             LocalProjectFilePreviewSheet(preview: preview)
+                .dismissOnOutsideClick()
         }
         .alert("File preview unavailable", isPresented: Binding(
             get: { filePreviewError != nil },
@@ -847,7 +850,7 @@ private struct LocalProjectFilePreviewSheet: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(16)
                         }
-                        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                     }
                     .padding(20)
                 }
@@ -911,7 +914,7 @@ private struct ProjectSidebarRow: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 8))
                     .accessibilityIdentifier("sidebar-pr-count-\(key.dropFirst("github:".count))")
             }
             if isHovered || isPinned {
@@ -971,6 +974,7 @@ private struct ProjectSidebarRow: View {
                 showingEdit = false
             }
             .frame(width: 420, height: 480)
+            .dismissOnOutsideClick()
         }
     }
 }
@@ -1041,7 +1045,7 @@ private struct ProjectSidebarEditSheet: View {
                                 .workspaceFont(size: 16)
                                 .foregroundStyle(ProjectSidebarTint(rawValue: color)?.color ?? .primary)
                                 .frame(width: 32, height: 30)
-                                .background(icon == symbol ? Color.primary.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                                .background(icon == symbol ? Color.primary.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
                         .help(symbol)
@@ -1177,7 +1181,7 @@ private struct ActivityView: View {
                         Label(String(selectedYear), systemImage: "chevron.down")
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
-                            .workspaceSurfaceBackground(Color.accentColor, in: RoundedRectangle(cornerRadius: 9))
+                            .workspaceSurfaceBackground(Color.accentColor, in: RoundedRectangle(cornerRadius: 8))
                             .foregroundStyle(.white)
                     }
                     .menuStyle(.borderlessButton)
@@ -1221,8 +1225,8 @@ private struct ActivityView: View {
                     }
                 }
                 .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.25)))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 32)
@@ -1258,7 +1262,7 @@ private struct ActivityView: View {
                             VStack(spacing: 4) {
                                 ForEach(0..<7, id: \.self) { row in
                                     if let day = week.contributionDays.first(where: { $0.weekday == row }) {
-                                        RoundedRectangle(cornerRadius: 3)
+                                        RoundedRectangle(cornerRadius: 8)
                                             .fill(contributionColor(day.contributionLevel))
                                             .frame(width: cell, height: cell)
                                             .help("\(day.contributionCount) contributions on \(day.date)")
@@ -1280,7 +1284,7 @@ private struct ActivityView: View {
                 Text("Less")
                     .foregroundStyle(.secondary)
                 ForEach(0..<5, id: \.self) { level in
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(contributionColor(for: level))
                         .frame(width: 17, height: 17)
                 }
@@ -1430,7 +1434,7 @@ private struct RepositorySearchSheet: View {
                     .keyboardShortcut(.cancelAction)
             }
             .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
 
             if store.repositories.isEmpty {
                 ContentUnavailableView(
@@ -1626,8 +1630,8 @@ private struct RepositoryRow: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.22)))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.22)))
         .accessibilityIdentifier("repository-\(repository.id)")
     }
 }
@@ -1724,8 +1728,8 @@ private struct ProjectWorkspaceView: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity)
-            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.25)))
+            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
             }
         .padding(28)
         .frame(maxWidth: 1600, alignment: .topLeading)
@@ -1741,6 +1745,7 @@ private struct ProjectWorkspaceView: View {
         .sheet(isPresented: $showingCreatePullRequest, onDismiss: { createPullRequestHead = nil }) {
             CreatePullRequestView(repository: repository, branches: store.projectBranches, store: store, initialHead: createPullRequestHead)
                 .frame(width: 520, height: 430)
+                .dismissOnOutsideClick()
         }
     }
 
@@ -1839,8 +1844,8 @@ private struct ProjectWorkspaceView: View {
                             }
                             .frame(width: 150, alignment: .leading)
                             .padding(12)
-                            .workspaceSurfaceBackground(selected ? Color.accentColor.opacity(0.11) : Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.08), lineWidth: 1))
+                            .workspaceSurfaceBackground(selected ? Color.accentColor.opacity(0.11) : Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.08), lineWidth: 1))
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("branch-graph-\(branch.name)")
@@ -1897,7 +1902,7 @@ private struct ProjectWorkspaceView: View {
                             }
                         }
                         .padding(14)
-                        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                         .accessibilityIdentifier("selected-commit-details")
                     }
                 }
@@ -2019,9 +2024,9 @@ private struct PullRequestCard: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08)))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("pull-request-\(pullRequest.number)")
@@ -2112,19 +2117,19 @@ private struct PullRequestDetailView: View {
                 Label(pullRequest.mergedAt == nil ? pullRequest.state.capitalized : "Merged", systemImage: pullRequest.mergedAt == nil ? (pullRequest.state == "open" ? "arrow.triangle.pull" : "checkmark") : "checkmark")
                     .workspaceFont(.callout, weight: .semibold)
                     .padding(.horizontal, 10).padding(.vertical, 5)
-                    .workspaceSurfaceBackground(pullRequest.mergedAt != nil ? Color.purple : (pullRequest.state == "open" ? Color.green : Color.secondary), in: Capsule())
+                    .workspaceSurfaceBackground(pullRequest.mergedAt != nil ? Color.purple : (pullRequest.state == "open" ? Color.green : Color.secondary), in: RoundedRectangle(cornerRadius: 8))
                     .foregroundStyle(.white)
                 Text("@\(pullRequest.user?.login ?? "unknown") wants to merge \(commitCount) \(commitCount == 1 ? "commit" : "commits") into")
                     .foregroundStyle(.secondary)
                 Text(pullRequest.base?.ref ?? "base")
                     .workspaceFont(.callout, weight: .semibold, design: .monospaced)
                     .padding(.horizontal, 6).padding(.vertical, 3)
-                    .workspaceSurfaceBackground(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
+                    .workspaceSurfaceBackground(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
                 Text("from") .foregroundStyle(.secondary)
                 Text(pullRequest.head?.ref ?? "head")
                     .workspaceFont(.callout, weight: .semibold, design: .monospaced)
                     .padding(.horizontal, 6).padding(.vertical, 3)
-                    .workspaceSurfaceBackground(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                    .workspaceSurfaceBackground(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                 Spacer()
             }
         }
@@ -2146,7 +2151,7 @@ private struct PullRequestDetailView: View {
                     .workspaceFont(.title2, weight: .semibold)
                     .foregroundStyle(.white)
                     .frame(width: 48, height: 48)
-                    .workspaceSurfaceBackground(Color.green, in: RoundedRectangle(cornerRadius: 10))
+                    .workspaceSurfaceBackground(Color.green, in: RoundedRectangle(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Commit message").workspaceFont(.headline)
                     TextField("Commit message", text: $mergeCommitTitle)
@@ -2186,8 +2191,8 @@ private struct PullRequestDetailView: View {
             }
         }
         .padding(16)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.35)))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.35)))
         .accessibilityIdentifier("merge-confirmation-form")
     }
 
@@ -2209,7 +2214,7 @@ private struct PullRequestDetailView: View {
                         Text("\(count(for: tab))")
                             .workspaceFont(.caption, weight: .semibold, monospacedDigits: true)
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .workspaceSurfaceBackground(Color.primary.opacity(0.08), in: Capsule())
+                            .workspaceSurfaceBackground(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                     }
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .workspaceSurfaceBackground(selectedTab == tab ? Color.primary.opacity(0.06) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
@@ -2267,15 +2272,15 @@ private struct PullRequestDetailView: View {
                     Spacer()
                     Text("Author").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
                         .padding(.horizontal, 8).padding(.vertical, 3)
-                        .overlay(Capsule().stroke(Color.accentColor.opacity(0.45)))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor.opacity(0.45)))
                 }
                 .padding(12)
                 .workspaceSurfaceBackground(Color.accentColor.opacity(0.08))
                 MarkdownPreviewView(markdown: pullRequest.body?.isEmpty == false ? pullRequest.body! : "No description provided.")
                     .padding(18)
             }
-            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.accentColor.opacity(0.55), lineWidth: 1))
+            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor.opacity(0.55), lineWidth: 1))
 
             if store.selectedPullRequestComments.isEmpty && store.selectedPullRequestReviews.isEmpty && store.selectedPullRequestReviewComments.isEmpty {
                 ContentUnavailableView("No conversation yet", systemImage: "text.bubble")
@@ -2305,8 +2310,8 @@ private struct PullRequestDetailView: View {
             Text(body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.15)))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.15)))
     }
 
     private var commits: some View {
@@ -2406,7 +2411,7 @@ private struct PullRequestDetailView: View {
             .disabled(responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.pullRequestActionInProgress)
         }
         .padding(14)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var metadataSidebar: some View {
@@ -2430,7 +2435,7 @@ private struct PullRequestDetailView: View {
                 let labels = pullRequest.labels ?? []
                 if labels.isEmpty { Text("None yet").foregroundStyle(.secondary) }
                 else {
-                    HStack { ForEach(labels) { label in Text(label.name).workspaceFont(.caption, weight: .medium).padding(.horizontal, 8).padding(.vertical, 4).workspaceSurfaceBackground(Color.accentColor.opacity(0.12), in: Capsule()) } }
+                    HStack { ForEach(labels) { label in Text(label.name).workspaceFont(.caption, weight: .medium).padding(.horizontal, 8).padding(.vertical, 4).workspaceSurfaceBackground(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8)) } }
                 }
             }
             metadataSection("Projects") { Text("None yet").foregroundStyle(.secondary) }
@@ -2653,7 +2658,7 @@ private struct MarkdownPreviewView: View {
             .padding(.leading, 12)
         case .quote:
             HStack(alignment: .top, spacing: 10) {
-                RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.5)).frame(width: 3)
+                RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.5)).frame(width: 3)
                 Text(readableMarkdown(block.text))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2787,8 +2792,8 @@ private struct SettingsView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.2)))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
     }
 }
 

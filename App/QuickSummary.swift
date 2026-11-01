@@ -28,7 +28,7 @@ struct QuickSummaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("dev", systemImage: "waveform.path.ecg").font(.headline)
+                Label("dev", systemImage: "waveform.path.ecg").workspaceFont(.headline)
                 Spacer()
                 Button("Open Workspace") { open(.workspace) }
                     .buttonStyle(.borderedProminent)
@@ -49,13 +49,13 @@ struct QuickSummaryView: View {
                         Text(repository.name).lineLimit(1)
                         Spacer()
                         Text((store.openPullRequestCounts[repository.id] ?? 0).formatted())
-                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            .workspaceFont(.caption, monospacedDigits: true).foregroundStyle(.secondary)
                     }
                 }
                 ForEach(store.overviewPullRequests.prefix(3)) { item in
                     Link(destination: item.request.htmlURL) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("\(item.repository.name) · #\(item.request.number)").font(.caption).foregroundStyle(.secondary)
+                            Text("\(item.repository.name) · #\(item.request.number)").workspaceFont(.caption).foregroundStyle(.secondary)
                             Text(item.request.title).lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -90,10 +90,11 @@ struct QuickSummaryView: View {
             HStack {
                 Label("Tasks", systemImage: "checklist").foregroundStyle(.secondary)
                 Spacer()
-                Text("Coming soon").font(.caption).foregroundStyle(.tertiary)
+                Text("Coming soon").workspaceFont(.caption).foregroundStyle(.tertiary)
             }
             .accessibilityIdentifier("summary-tasks-coming-soon")
         }
+        .workspaceFont(.body)
         .padding(16)
         .frame(width: summaryWidth)
         .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: store.summaryEvents.first?.id)
@@ -101,7 +102,7 @@ struct QuickSummaryView: View {
 
     private func shortcut(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon).labelStyle(.titleAndIcon).font(.caption)
+            Label(title, systemImage: icon).labelStyle(.titleAndIcon).workspaceFont(.caption)
         }
         .buttonStyle(.bordered)
         .help(title)
@@ -200,14 +201,14 @@ struct NotchSummaryPanelView: View {
                 if !state.expanded {
                     Button { state.expanded = true } label: {
                         HStack(spacing: 0) {
-                            Text("dev").font(.system(size: 10, weight: .semibold, design: .rounded))
+                            Text("dev").workspaceFont(size: 12, weight: .semibold, design: .rounded)
                                 .frame(maxWidth: .infinity)
                             Color.clear.frame(width: physicalNotchWidth + 8)
                             HStack(spacing: 4) {
                                 Text(store.openPullRequestCounts.values.reduce(0, +).formatted()).monospacedDigit()
                                 Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
                             }
-                            .font(.system(size: 10, weight: .semibold))
+                            .workspaceFont(size: 12, weight: .semibold)
                             .frame(maxWidth: .infinity)
                         }
                         .padding(.horizontal, 20)
@@ -240,12 +241,12 @@ struct NotchSummaryPanelView: View {
                         widget("Workspace", icon: "square.grid.2x2", action: .workspace)
                         widget("Skills", icon: "sparkles.rectangle.stack", action: .skills)
                     }
-                    .padding(.horizontal, 6).background(.black, in: Capsule())
+                    .padding(.horizontal, 6).background(.black, in: RoundedRectangle(cornerRadius: 8))
                     HStack(spacing: 2) {
                         widget("Terminal", icon: "terminal", action: .terminal)
                         if codexProviderEnabled { widget("Codex", icon: "sparkles", action: .codex) }
                     }
-                    .padding(.horizontal, 6).background(.black, in: Capsule())
+                    .padding(.horizontal, 6).background(.black, in: RoundedRectangle(cornerRadius: 8))
                 }
                 .frame(height: 32)
                 .padding(.bottom, 8)
@@ -279,7 +280,7 @@ struct NotchSummaryPanelView: View {
 
     private var skillsPreview: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Skills").font(.headline)
+            Text("Skills").workspaceFont(.headline)
             TextField("Search skills", text: $skillSearch)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("notch-skills-search")
@@ -293,13 +294,14 @@ struct NotchSummaryPanelView: View {
                         skillSearch.isEmpty || "\($0.name) \($0.description)".localizedCaseInsensitiveContains(skillSearch)
                     }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { entry in
                         DisclosureGroup(entry.name) {
-                            Text(entry.description).font(.callout).textSelection(.enabled)
+                            Text(entry.description).workspaceFont(.callout).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
             }
         }
+        .workspaceFont(.body)
         .padding(12)
     }
 
@@ -311,8 +313,8 @@ struct NotchSummaryPanelView: View {
 
 struct NotchCapShape: Shape {
     func path(in rect: CGRect) -> Path {
-        let shoulder: CGFloat = 12
-        let radius = min(24, rect.height / 2)
+        let shoulder: CGFloat = 8
+        let radius = min(8, rect.height / 2)
         return Path { path in
             path.move(to: CGPoint(x: rect.minX, y: rect.minY))
             path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
