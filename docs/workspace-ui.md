@@ -41,3 +41,13 @@ Open and closed pull requests appear in the project Pull Requests page, which re
 Opening a pull request replaces the project view with a GitHub-style review page: title and status, base/head branches, merge status, Conversation/Commits/Checks/Files changed tabs with counts and diff totals, discussion content, and a metadata sidebar. Check runs load from the PR head commit; if GitHub withholds check data, the other PR detail sections still load and the Checks tab reports its own error. The header Code menu links to the PR on GitHub. **Merge…** opens an editable commit title and extended description before confirmation. A successful GitHub response updates the PR to **Merged** and refreshes the open count; GitHub's 405 and 409 merge responses explain merge requirements or a changed base branch, and 403 explains the required app permissions.
 
 The Pull Requests page can create a PR by choosing a head and base from branches already pushed to GitHub, then entering a title and description. The Branches page also offers **Create pull request** for the selected non-default branch and preselects it as the PR head. Creating the PR adds it to the project PR list and updates the sidebar count. The app does not push a local branch. Project rows in the expanded and compact sidebar show the current open-PR count; counts refresh after repository discovery, project history loads, and PR creation.
+
+## Typography and corners
+
+App detail text uses a 12 pt minimum, including captions, badges, provider summaries, Skills, Quick Summary, terminal text, and chart labels. Font settings can enlarge text; Small never reduces it below 12 pt. The macOS system font and system monospace remain in use. App-drawn rounded cards, badges, borders, clips, and hit shapes use 8 pt corners. Icon sizes, decorative background glyphs, macOS-owned controls, and embedded websites keep their native styling.
+
+Overview uses one 8 pt card each for Start, Recent projects, and Recent pull requests. Headings sit inside the cards; visible dividers separate headings and individual action/project/PR rows. Start actions remain fully clickable rows with their existing identifiers.
+
+## Sheet dismissal
+
+Clicking the workspace outside an app sheet closes it without activating the background control. This applies to New/Clone project, recent project/PR pickers, repository search, provider usage, file previews, project appearance, and PR creation. Inside clicks remain interactive. Nested sheets and app-modal file pickers protect the underlying form until dismissed. macOS confirmation dialogs keep their native behavior; dismissing a form does not submit it.
