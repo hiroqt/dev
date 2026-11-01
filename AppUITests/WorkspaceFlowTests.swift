@@ -3,6 +3,16 @@ import XCTest
 
 @MainActor
 final class WorkspaceFlowTests: XCTestCase {
+    func testPasswordManagerStartsLocked() {
+        let app = XCUIApplication()
+        app.launch()
+        let navigation = app.descendants(matching: .any)["nav-passwords"].firstMatch
+        XCTAssertTrue(navigation.waitForExistence(timeout: 5))
+        navigation.click()
+        XCTAssertTrue(app.buttons["vault-unlock"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Add Login"].exists)
+    }
+
     func testClickingOutsideSheetDismissesWithoutActivatingBackground() {
         let app = XCUIApplication()
         app.launch()

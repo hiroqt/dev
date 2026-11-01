@@ -308,6 +308,10 @@ struct WorkspaceView: View {
                         .workspaceFont(size: 15, weight: .medium)
                         .tag(Destination.monitoring)
                         .accessibilityIdentifier("nav-monitoring")
+                    Label("Password Manager", systemImage: "lock.shield")
+                        .workspaceFont(size: 15, weight: .medium)
+                        .tag(Destination.passwords)
+                        .accessibilityIdentifier("nav-passwords")
                     Label("Skills", systemImage: "sparkles.rectangle.stack")
                         .workspaceFont(size: 15, weight: .medium)
                         .tag(Destination.skills)
@@ -450,6 +454,9 @@ struct WorkspaceView: View {
                     compactButton("Monitoring", icon: "gauge.with.dots.needle.50percent", selected: selection == .monitoring, id: "compact-nav-monitoring") {
                         selection = .monitoring
                     }
+                    compactButton("Passwords", icon: "lock.shield", selected: selection == .passwords, id: "compact-nav-passwords") {
+                        selection = .passwords
+                    }
                     compactButton("Skills", icon: "sparkles.rectangle.stack", selected: selection == .skills, id: "compact-nav-skills") {
                         selection = .skills
                     }
@@ -563,6 +570,7 @@ struct WorkspaceView: View {
         case .allProjects, nil: "All Projects"
         case .activity: "Activity"
         case .monitoring: "Monitoring"
+        case .passwords: "Password Manager"
         case .skills: "Skills"
         case .settings: "Settings"
         case let .project(id, _): store.repository(id: id)?.fullName ?? "Project"
@@ -581,6 +589,8 @@ struct WorkspaceView: View {
             MonitoringView(store: monitoring, integrations: providerIntegrations)
         case .activity:
             ActivityView(store: store)
+        case .passwords:
+            PasswordManagerView()
         case .skills:
             SkillsLibraryView(store: store)
         case .settings:
