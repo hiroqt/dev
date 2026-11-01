@@ -3,6 +3,25 @@ import XCTest
 
 @MainActor
 final class WorkspaceFlowTests: XCTestCase {
+    func testClickingOutsideSheetDismissesWithoutActivatingBackground() {
+        let app = XCUIApplication()
+        app.launch()
+        let newProject = app.buttons["welcome-new-project"]
+        XCTAssertTrue(newProject.waitForExistence(timeout: 5))
+        newProject.click()
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        // The sidebar is outside the sheet; its Settings action must not receive this click.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.85)).click()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(newProject.exists)
+
+        app.links["welcome-recent-projects-more"].click()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.85)).click()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 3))
+    }
+
     func testNotchExpansionAndFloatingTools() throws {
         guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 24 }) else {
             throw XCTSkip("Requires a display with a physical notch")

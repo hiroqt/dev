@@ -14,6 +14,12 @@ extension EnvironmentValues {
     }
 }
 
+enum WorkspaceTypography {
+    static func scaledSize(_ size: CGFloat, scale: CGFloat) -> CGFloat {
+        max(12, max(12, size) * scale)
+    }
+}
+
 private struct WorkspaceFontModifier: ViewModifier {
     @Environment(\.workspaceFontScale) private var scale
     let size: CGFloat
@@ -21,7 +27,7 @@ private struct WorkspaceFontModifier: ViewModifier {
     let design: Font.Design
 
     func body(content: Content) -> some View {
-        content.font(.system(size: size * scale, weight: weight, design: design))
+        content.font(.system(size: WorkspaceTypography.scaledSize(size, scale: scale), weight: weight, design: design))
     }
 }
 
@@ -50,7 +56,7 @@ private struct WorkspaceTextStyleFontModifier: ViewModifier {
     let monospacedDigits: Bool
 
     func body(content: Content) -> some View {
-        let font = Font.system(size: style.workspaceBaseSize * scale, weight: weight, design: design)
+        let font = Font.system(size: WorkspaceTypography.scaledSize(style.workspaceBaseSize, scale: scale), weight: weight, design: design)
         content.font(monospacedDigits ? font.monospacedDigit() : font)
     }
 }
@@ -165,9 +171,9 @@ struct ThemePresetButton: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.08)))
-                .contentShape(RoundedRectangle(cornerRadius: 12))
+                .background(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? Color.accentColor.opacity(0.55) : Color.primary.opacity(0.08)))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
             .accessibilityAddTraits(selected ? .isSelected : [])
@@ -224,7 +230,7 @@ private struct ThemeSwatch: View {
                         Text(".:;+*oO8888Oo*+;:. ").foregroundStyle(palette.secondary)
                         Text("  .,:;+*oOOo*+;:,. ").foregroundStyle(palette.primary)
                     }
-                    .workspaceFont(size: 6, design: .monospaced)
+                    .font(.system(size: 6, design: .monospaced))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .padding(6)
                 case .auroraGrid:
@@ -618,7 +624,7 @@ struct WorkspaceToolsPanel: View {
                     Text("Open or clone a project to see it here.")
                         .workspaceFont(.callout).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12).background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                        .padding(12).background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                 } else {
                     VStack(spacing: 4) {
                         ForEach(recentProjects) { project in
@@ -633,13 +639,13 @@ struct WorkspaceToolsPanel: View {
                                     Image(systemName: "arrow.up.left").workspaceFont(.caption).foregroundStyle(.tertiary)
                                 }
                                 .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(RoundedRectangle(cornerRadius: 10))
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("tool-recent-project-\(project.id)")
                         }
                     }
-                    .padding(5).background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(5).background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                 }
                 Label("Terminal commands run with your macOS account permissions. The project path sets the starting folder only.", systemImage: "info.circle")
                     .workspaceFont(.caption).foregroundStyle(.secondary)
@@ -656,8 +662,8 @@ struct WorkspaceToolsPanel: View {
                 Text(detail).workspaceFont(.caption).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
-            .padding(12).background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.primary.opacity(0.08)))
+            .padding(12).background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("tool-launch-\(title.lowercased())")
@@ -829,10 +835,9 @@ private struct LocalTerminalRepresentable: NSViewRepresentable {
 
     private var terminalFontSize: CGFloat {
         switch workspaceFontSize {
-        case "small": 11
         case "large": 16
         case "xl": 20
-        default: 14
+        default: 12
         }
     }
 

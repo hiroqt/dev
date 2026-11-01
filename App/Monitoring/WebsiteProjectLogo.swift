@@ -18,8 +18,8 @@ struct WebsiteProjectLogo: View {
             }
         }
         .frame(width: size, height: size)
-        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: size * 0.2))
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.2))
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .accessibilityHidden(true)
         .task(id: WebsiteLogoSource.origin(websiteURL)) {
             imageData = nil

@@ -16,7 +16,7 @@ struct ProviderUsageSummary: View {
                 Label("AI usage", systemImage: "chart.bar.xaxis").workspaceFont(.subheadline, weight: .semibold)
                 Spacer()
                 Button("Refresh") { Task { await integrations.refreshUsage() } }
-                    .font(.caption)
+                    .workspaceFont(.caption)
                     .disabled(integrations.isRefreshingUsage || !canRefreshUsage)
                     .accessibilityIdentifier("provider-usage-refresh")
             }
@@ -54,9 +54,9 @@ private struct ProviderUsageSummaryRow: View {
                         .accessibilityHidden(true)
                     Spacer()
                     Text(statusLabel)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .workspaceFont(.caption).foregroundStyle(.secondary)
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .workspaceFont(.caption2).foregroundStyle(.tertiary)
                 }
                 .contentShape(Rectangle())
             }
@@ -74,11 +74,11 @@ private struct ProviderUsageSummaryRow: View {
     private var usageDetails: some View {
             VStack(alignment: .leading, spacing: 7) {
                 Text(snapshot?.planType.map { "Detected plan: \($0.capitalized)" } ?? planLabel.map { "Plan label: \($0)" } ?? "Plan not selected")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .workspaceFont(.caption).foregroundStyle(.secondary)
                 if let snapshot {
                     ForEach(Array(snapshot.groups.enumerated()), id: \.offset) { item in
                         let group = item.element
-                        Text(group.name).font(.caption).foregroundStyle(.secondary)
+                        Text(group.name).workspaceFont(.caption).foregroundStyle(.secondary)
                         ForEach(Array(group.buckets.enumerated()), id: \.offset) { item in
                             let bucket = item.element
                             HStack {
@@ -86,7 +86,7 @@ private struct ProviderUsageSummaryRow: View {
                                 Spacer()
                                 Text("\(bucket.remainingPercent)% left").monospacedDigit()
                             }
-                            .font(.caption)
+                            .workspaceFont(.caption)
                         }
                     }
                     if !hasWindow(.fiveHour) { usageLine("5-hour limit") }
@@ -96,18 +96,18 @@ private struct ProviderUsageSummaryRow: View {
                         Spacer()
                         Text(snapshot.credits ?? "Unavailable").monospacedDigit()
                     }
-                    .font(.caption)
+                    .workspaceFont(.caption)
                     Text("Updated \(snapshot.updatedAt.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .workspaceFont(.caption2).foregroundStyle(.tertiary)
                 } else {
                     usageLine("5-hour limit")
                     usageLine("Weekly limit")
                     usageLine("Credits")
                     Text("Usage data is unavailable in dev. Check it with \(provider.usageCommand) in the provider CLI.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .workspaceFont(.caption).foregroundStyle(.secondary)
                 }
                 Link("Manage usage / help", destination: provider.usageGuideURL)
-                    .font(.caption)
+                    .workspaceFont(.caption)
             }
             .padding(.leading, 20)
             .padding(.vertical, 4)
@@ -134,6 +134,6 @@ private struct ProviderUsageSummaryRow: View {
             Spacer()
             Text("Unavailable").foregroundStyle(.secondary)
         }
-        .font(.caption)
+        .workspaceFont(.caption)
     }
 }

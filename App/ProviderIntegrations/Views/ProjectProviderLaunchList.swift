@@ -16,7 +16,7 @@ struct ProjectProviderLaunchList: View {
                 }
             } else {
                 Text("Select a project to configure or launch its providers.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .workspaceFont(.caption).foregroundStyle(.secondary)
             }
         }
         .task { await integrations.refreshAvailability() }
@@ -59,16 +59,16 @@ private struct ProviderProjectRow: View {
                     .accessibilityIdentifier("project-provider-\(provider.rawValue)-launch")
             } else {
                 Link("Get CLI", destination: provider.setupURL)
-                    .font(.caption)
+                    .workspaceFont(.caption)
             }
         }
-        .font(.callout)
+        .workspaceFont(.callout)
         if globallyEnabled && projectEnabled {
             Text("Usage: enter \(provider.usageCommand) in the CLI. Sign-in: \(provider.signInStatus).")
-                .font(.caption).foregroundStyle(.secondary)
+                .workspaceFont(.caption).foregroundStyle(.secondary)
         } else if !globallyEnabled {
             Text("Enable this provider in Settings to use it here.")
-                .font(.caption).foregroundStyle(.secondary)
+                .workspaceFont(.caption).foregroundStyle(.secondary)
         }
     }
 

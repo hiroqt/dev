@@ -62,7 +62,7 @@ private struct ProviderSettingsCard: View {
                     .textFieldStyle(.roundedBorder)
             }
             Text("Plan is a label only; dev does not estimate limits from it.")
-                .font(.caption).foregroundStyle(.secondary)
+                .workspaceFont(.caption).foregroundStyle(.secondary)
             if provider == .codex {
                 HStack {
                     Text("Sign-in")
@@ -82,17 +82,17 @@ private struct ProviderSettingsCard: View {
                 Button("Refresh Codex usage") { Task { await integrations.refreshUsage() } }
                     .disabled(!installed || !isEnabled || integrations.isRefreshingUsage)
                 Text("dev reads Codex's structured local app-server usage response after launch and every five minutes. It does not read the terminal screen or store Codex credentials.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .workspaceFont(.caption).foregroundStyle(.secondary)
             } else {
                 LabeledContent("5-hour / weekly usage in dev", value: "Unavailable")
                 Text("Open the CLI and enter \(provider.usageCommand) to check provider-reported usage. dev does not parse interactive terminal output.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .workspaceFont(.caption).foregroundStyle(.secondary)
             }
             Link("Setup and CLI documentation", destination: provider.setupURL)
-                .font(.caption)
+                .workspaceFont(.caption)
         }
         .padding(12)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var signInLabel: String {

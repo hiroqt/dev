@@ -35,25 +35,28 @@ struct WelcomeOverviewView: View {
             .background(Color.clear)
         }
         .sheet(item: $presentedSheet) { sheet in
-            switch sheet {
-            case .newProject:
-                NewProjectSheet(store: store) { id in
-                    presentedSheet = nil
-                    openProject(.localProject(id, .overview))
+            Group {
+                switch sheet {
+                case .newProject:
+                    NewProjectSheet(store: store) { id in
+                        presentedSheet = nil
+                        openProject(.localProject(id, .overview))
+                    }
+                case .cloneProject:
+                    CloneProjectPicker(store: store, clone: clone, open: { repository in
+                        presentedSheet = nil
+                        openProject(.project(repository.id, .overview))
+                    })
+                case .recentProjects:
+                    RecentProjectsPicker(store: store, openProject: { destination in
+                        presentedSheet = nil
+                        openProject(destination)
+                    })
+                case .recentPullRequests:
+                    MoreRecentPullRequestsSheet(store: store, openProject: openProject)
                 }
-            case .cloneProject:
-                CloneProjectPicker(store: store, clone: clone, open: { repository in
-                    presentedSheet = nil
-                    openProject(.project(repository.id, .overview))
-                })
-            case .recentProjects:
-                RecentProjectsPicker(store: store, openProject: { destination in
-                    presentedSheet = nil
-                    openProject(destination)
-                })
-            case .recentPullRequests:
-                MoreRecentPullRequestsSheet(store: store, openProject: openProject)
             }
+            .dismissOnOutsideClick()
         }
         .task(id: repositoryKey) { await store.loadOverviewPullRequests() }
     }
@@ -98,13 +101,16 @@ struct WelcomeOverviewView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Start")
                 .workspaceFont(.title2, weight: .bold)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], alignment: .leading, spacing: 10) {
+            Divider().overlay(Color.primary.opacity(0.12))
+            VStack(spacing: 0) {
                 startAction("New project", detail: "Create a folder", icon: "folder.badge.plus", id: "welcome-new-project") {
                     presentedSheet = .newProject
                 }
+                Divider().overlay(Color.primary.opacity(0.12))
                 startAction("Open project", detail: "Choose a local folder", icon: "folder", id: "welcome-open-project") {
                     openLocalProject()
                 }
+                Divider().overlay(Color.primary.opacity(0.12))
                 startAction("Clone project", detail: "From GitHub", icon: "arrow.down.to.line", id: "welcome-clone-project") {
                     presentedSheet = .cloneProject
                 }
@@ -116,24 +122,29 @@ struct WelcomeOverviewView: View {
                     .accessibilityIdentifier("welcome-local-project-error")
             }
         }
+        .padding(14)
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.1)))
     }
 
     private func startAction(_ title: String, detail: String, icon: String, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 12) {
                 Image(systemName: icon)
                     .workspaceFont(size: 21, weight: .medium)
                     .foregroundStyle(Color.accentColor)
-                Text(title).workspaceFont(.headline)
-                Text(detail).workspaceFont(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).workspaceFont(.headline)
+                    Text(detail).workspaceFont(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
             .padding(14)
-            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.08)))
         .accessibilityIdentifier(id)
     }
 
@@ -146,6 +157,7 @@ struct WelcomeOverviewView: View {
                     .buttonStyle(.link)
                     .accessibilityIdentifier("welcome-recent-projects-more")
             }
+            Divider().overlay(Color.primary.opacity(0.12))
             let projects = recentProjectRows
             if projects.isEmpty {
                 Text("Projects you open will appear here.")
@@ -153,10 +165,10 @@ struct WelcomeOverviewView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(14)
-                    .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
             } else {
-                VStack(spacing: 2) {
+                VStack(spacing: 0) {
                     ForEach(projects.prefix(5)) { project in
+                        if project.id != projects.first?.id { Divider().overlay(Color.primary.opacity(0.12)) }
                         Button { openProject(project.destination) } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: project.icon)
@@ -181,9 +193,11 @@ struct WelcomeOverviewView: View {
                     }
                 }
                 .padding(6)
-                .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
             }
         }
+        .padding(14)
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.1)))
     }
 
     private var recentPullRequestsSection: some View {
@@ -198,6 +212,7 @@ struct WelcomeOverviewView: View {
                 }
                 if store.overviewPullRequestsLoading { ProgressView().controlSize(.small) }
             }
+            Divider().overlay(Color.primary.opacity(0.12))
             if let error = store.overviewPullRequestsError {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .workspaceFont(.caption)
@@ -209,10 +224,10 @@ struct WelcomeOverviewView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(14)
-                    .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: 0) {
                     ForEach(store.overviewPullRequests.prefix(5)) { item in
+                        if item.id != store.overviewPullRequests.first?.id { Divider().overlay(Color.primary.opacity(0.12)) }
                         Button {
                             if store.isCloned(item.repository) {
                                 openProject(.project(item.repository.id, .pullRequests))
@@ -238,20 +253,22 @@ struct WelcomeOverviewView: View {
                                     .workspaceFont(.caption2, weight: .semibold)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
-                                    .workspaceSurfaceBackground(pullRequestStateColor(item.request).opacity(0.15), in: Capsule())
+                                    .workspaceSurfaceBackground(pullRequestStateColor(item.request).opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
                                     .foregroundStyle(pullRequestStateColor(item.request))
                             }
                             .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
                             .padding(12)
-                            .contentShape(RoundedRectangle(cornerRadius: 12))
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
-                        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                         .accessibilityIdentifier("welcome-recent-pr-\(item.id)")
                     }
                 }
             }
         }
+        .padding(14)
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.1)))
     }
 
     private var themeConfigurationPanel: some View {
@@ -274,8 +291,8 @@ struct WelcomeOverviewView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.08)))
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
     }
 
     private func palette(for theme: WorkspaceBackgroundTheme) -> WorkspaceThemePalette {
@@ -468,7 +485,7 @@ private struct CloneProjectPicker: View {
                                 }
                             }
                             .padding(12)
-                            .workspaceSurfaceBackground(Color(nsColor: .controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+                            .workspaceSurfaceBackground(Color(nsColor: .controlBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
                         }
                     }
                 }
@@ -595,13 +612,13 @@ private struct MoreRecentPullRequestsSheet: View {
                                         .workspaceFont(.caption2, weight: .semibold)
                                         .padding(.horizontal, 8).padding(.vertical, 4)
                                         .foregroundStyle(pullRequestStateColor(item.request))
-                                        .workspaceSurfaceBackground(pullRequestStateColor(item.request).opacity(0.15), in: Capsule())
+                                        .workspaceSurfaceBackground(pullRequestStateColor(item.request).opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
                                 }
                                 .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(RoundedRectangle(cornerRadius: 12))
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
                             }
                             .buttonStyle(.plain)
-                            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                            .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                         }
                     }
                 }

@@ -155,7 +155,7 @@ struct VercelDeploymentDashboard: View {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField("Search projects or teams", text: $query).textFieldStyle(.plain)
                 .accessibilityIdentifier("vercel-project-search")
-        }.padding(12).workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        }.padding(12).workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var accountFilter: some View {
@@ -420,7 +420,7 @@ struct VercelDeploymentDashboard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .workspaceSurfaceBackground(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+        .workspaceSurfaceBackground(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -464,7 +464,7 @@ struct DeploymentStatusBadge: View {
     var body: some View {
         Label(state.capitalized, systemImage: state.uppercased() == "READY" ? "checkmark.circle.fill" : state.uppercased() == "ERROR" ? "xmark.circle.fill" : "clock")
             .workspaceFont(.caption).lineLimit(1).fixedSize(horizontal: true, vertical: false).foregroundStyle(color).padding(.horizontal, 9).padding(.vertical, 5)
-            .background(color.opacity(0.1), in: Capsule())
+            .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

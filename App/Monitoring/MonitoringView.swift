@@ -107,7 +107,17 @@ struct MonitoringView: View {
                                 .foregroundStyle(by: .value("Metric", "CPU"))
                         }
                     }
-                }.chartYScale(domain: 0...100).frame(height: 200)
+                }.chartXAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel().font(.system(size: 12)) } }
+                    .chartYAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel().font(.system(size: 12)) } }
+                    .chartYScale(domain: 0...100)
+                    .chartForegroundStyleScale(["Memory": Color.blue, "CPU": Color.green])
+                    .chartLegend {
+                        HStack {
+                            Label("Memory", systemImage: "square.fill").foregroundStyle(.blue)
+                            Label("CPU", systemImage: "square.fill").foregroundStyle(.green)
+                        }.workspaceFont(.caption)
+                    }
+                    .frame(height: 200)
                 Text("RAM includes active, wired, and compressed pages. Network counts physical en interfaces; VPN and bridge traffic is excluded to avoid double counting. Minute samples are kept for seven days.")
                     .workspaceFont(.caption).foregroundStyle(.secondary)
             }.monitoringCard()
@@ -125,7 +135,16 @@ struct MonitoringView: View {
                                 .foregroundStyle(by: .value("Direction", "Upload"))
                         }
                     }
-                }.frame(height: 160)
+                }.chartXAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel().font(.system(size: 12)) } }
+                    .chartYAxis { AxisMarks { AxisGridLine(); AxisTick(); AxisValueLabel().font(.system(size: 12)) } }
+                    .chartForegroundStyleScale(["Download": Color.blue, "Upload": Color.green])
+                    .chartLegend {
+                        HStack {
+                            Label("Download", systemImage: "square.fill").foregroundStyle(.blue)
+                            Label("Upload", systemImage: "square.fill").foregroundStyle(.green)
+                        }.workspaceFont(.caption)
+                    }
+                    .frame(height: 160)
             }.monitoringCard()
         }
     }
@@ -256,7 +275,7 @@ struct MonitoringView: View {
             }
         }
         .padding(tab == .server ? 0 : 18)
-        .workspaceSurfaceBackground(tab == .server ? Color.clear : Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+        .workspaceSurfaceBackground(tab == .server ? Color.clear : Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func metric(_ title: String, value: String, icon: String) -> some View {
@@ -277,7 +296,7 @@ struct MonitoringView: View {
 
 extension View {
     func monitoringCard() -> some View {
-        padding(18).workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+        padding(18).workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
