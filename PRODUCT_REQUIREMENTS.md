@@ -112,6 +112,13 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - Animate new/updated PRs and completed interactive shell commands into the summary. PR change detection compares up to eight most recently updated PRs per repository before limiting the visible overview to eight total. Terminal hooks are scoped to the child shell, write no user shell configuration, retain only the executable label and exit state, and never retain command arguments or output. Optional macOS notifications include new/updated PRs and command completion only after the user enables them in Settings and grants OS permission.
 - AI-generated insights and Tasks are disabled “Coming soon” rows; provider usage values are displayed only from supported provider sources and are not sent to an AI model.
 
+### Monitoring
+
+- Add Monitoring to both sidebar modes. The content area has Server / Deployment, Computer, and AI tabs; display only the selected tab’s content. Server / Deployment contains hosting connections and uptime; Computer contains Mac metrics/charts; AI contains subscription quotas and API reporting. Show live Mac CPU, RAM, swap, disk space and aggregate network throughput; retain minute samples for seven days locally. Monitoring runs while dev is running; sleep/closed intervals are gaps.
+- Read Vercel/Render deployment state using explicitly connected accounts. Vercel discovers personal and accessible team projects with paginated reads and explicit partial/access warnings. An adaptive overview places an account snapshot and recent releases beside searchable, account-filtered project cards, six per page. Cards show provider-reported domains, newest release/source and status. Selecting a project replaces the overview with a dedicated page and All projects back navigation: current-production endpoint, domains, source/creation metadata, seven-day numeric browser analytics, Observability links and latest/previous deployment history. Current production comes only from Vercel’s returned production target; previews are not labeled production, unknown metrics stay unknown, and no website previews are fetched automatically. Selectable history rows expose details. History shows five deployments per visible page with Previous/Next, using cached history before fetching older pages. Loaded counts are distinguished from unknown remote totals; empty, loading and failed states remain visible. Render services use paginated cards. Connection settings remain expandable. Read instrumented browser Web Analytics when supported and label it separately from network traffic. Provide the project’s Vercel Observability dashboard for bandwidth, edge requests, errors, latency and other unsupported metrics; no private API scraping or ingestion service. Probe only user-added HTTPS uptime URLs, showing observed availability and response time, never claiming continuous external uptime.
+- Reuse Codex/Antigravity quotas; label unavailable Claude subscription data. Separately report OpenAI and Anthropic organization API usage and costs over seven days with reporting credentials. Never infer spend from subscription quotas.
+- Store connection secrets in Keychain. Keep metric/uptime history local; exclude prompts, source, response bodies and credentials. Show stale/error/partial states and page-only warnings; no monitoring notifications or deployment mutations.
+
 ## User stories
 
 1. As the user, I want to sign in to GitHub so that the app can show repositories I can access.
@@ -165,6 +172,8 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - Quick Summary works from a persistent menu bar popover and, when a display reports a physical notch, a top-anchored panel that expands on click and minimizes from its header. It fits narrow displays, collapses on click-away or Escape, refreshes display measurements, exposes recent PRs/counts and four shortcuts, shows expandable provider usage, and animates activity while respecting Reduce Motion. Tasks remain a disabled placeholder. Polling is configurable with a one-minute default and backs off on API failures. System notifications are optional and require explicit Settings and macOS permission.
 - GitHub search and file reads are GET-only and use the existing public access or repository Contents read permission. No additional GitHub permission or repository mutation is introduced.
 
+- Monitoring is available in both sidebar modes with native Mac metrics, seven-day local metric and observed-uptime history, read-only Vercel/Render deployments and separate OpenAI/Anthropic API reporting. Credentials stay in Keychain; unavailable, stale and partial data are labeled, and monitoring sends no macOS notifications.
+
 ## Out of scope for v1
 
 - Editing GitHub issues or PRs, labels, branches, releases, or repository settings; closing PRs; resolving review threads; or running GitHub Actions.
@@ -184,3 +193,13 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - Select an AI provider/model, data residency/retention requirements, consent language, and cost/latency target.
 - Set the default polling interval and notification preferences.
 - Decide whether manual linking of pre-existing local clones is needed later.
+
+### Monitoring project insights refinement — 2026-11-01
+
+Within the selected deployment project, show its own website icon, a metadata-evidenced production checklist, available daily browser analytics, an Observability dashboard link for unsupported metrics and searchable/paginated deployment branches. Missing evidence stays unverified; deployment history does not establish live branch existence. Direct, bounded HTTPS homepage/icon reads are authorized solely for website logos; do not execute scripts, fetch screenshots or use a third-party favicon proxy.
+
+### Computer inspection extension — 2026-11-01
+
+Computer includes a local process activity table (CPU, resident memory, searchable names), reported battery charge/health information with unavailable states, and an explicit on-demand app storage scan. Scans are read-only and bounded; distinguish bundle sizes and reliably attributed user data from unclassified storage. Do not delete files, request expanded OS permissions or infer disk causes from process memory. Process commands/arguments, storage contents and battery data stay local and are not added to metric history.
+
+User approved Inspect + quit apps. Offer confirmed graceful quit for regular GUI apps, revalidate process identity, exclude dev itself and system/background processes. Do not force kill processes or bypass unsaved-work prompts.
