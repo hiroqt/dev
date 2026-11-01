@@ -3,6 +3,8 @@ import SwiftUI
 
 @MainActor
 final class DevAppDelegate: NSObject, NSApplicationDelegate {
+    let monitoring = MonitoringStore()
+    private var monitoringTask: Task<Void, Never>?
     let store = WorkspaceStore()
     let providerIntegrations = ProviderIntegrationsStore()
     private var notchPanel: NotchSummaryPanelController?
@@ -24,6 +26,7 @@ final class DevAppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await store.restoreSession()
         }
+        monitoringTask = Task { await monitoring.run() }
         usageMonitorTask = Task {
             await providerIntegrations.refreshAvailability()
             while !Task.isCancelled {
@@ -34,6 +37,7 @@ final class DevAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        monitoringTask?.cancel()
         usageMonitorTask?.cancel()
         usageMonitorTask = nil
         notchPanel?.stop()
@@ -48,7 +52,7 @@ struct DevApp: App {
 
     var body: some Scene {
         WindowGroup(id: "workspace") {
-            WorkspaceView(store: appDelegate.store, providerIntegrations: appDelegate.providerIntegrations)
+            WorkspaceView(store: appDelegate.store, providerIntegrations: appDelegate.providerIntegrations, monitoring: appDelegate.monitoring)
                 .frame(minWidth: 900, minHeight: 600)
         }
         .windowStyle(.titleBar)

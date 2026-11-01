@@ -67,6 +67,28 @@ final class WorkspaceFlowTests: XCTestCase {
         XCTAssertFalse(app.buttons["project-momo"].exists)
     }
 
+    func testSidebarOpensMonitoring() throws {
+        let app = XCUIApplication()
+        app.launch()
+        app.activate()
+        let row = app.outlines["Sidebar"].outlineRows.containing(.staticText, identifier: "nav-monitoring").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.click()
+        XCTAssertTrue(app.descendants(matching: .any)["monitoring-view"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["monitoring-uptime-url"].exists)
+        XCTAssertFalse(app.staticTexts["Mac activity"].exists)
+        app.radioButtons["Computer"].click()
+        XCTAssertTrue(app.staticTexts["Mac activity"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.textFields["monitoring-uptime-url"].exists)
+        app.radioButtons["AI"].click()
+        XCTAssertTrue(app.staticTexts["AI subscription quotas"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Mac activity"].exists)
+        XCTAssertFalse(app.textFields["monitoring-uptime-url"].exists)
+        app.radioButtons["Server / Deployment"].click()
+        XCTAssertTrue(app.textFields["monitoring-uptime-url"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["AI subscription quotas"].exists)
+    }
+
     func testSidebarOpensActivityAndSettings() throws {
         let app = XCUIApplication()
         app.launch()

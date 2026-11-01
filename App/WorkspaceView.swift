@@ -4,6 +4,7 @@ import SwiftUI
 struct WorkspaceView: View {
     @State private var store: WorkspaceStore
     @State private var providerIntegrations: ProviderIntegrationsStore
+    @State private var monitoring: MonitoringStore
     @State private var selection: Destination? = .allProjects
     @State private var isSidebarVisible = true
     @State private var showingRepositorySearch = false
@@ -24,7 +25,8 @@ struct WorkspaceView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
 
-    init(store: WorkspaceStore = WorkspaceStore(), providerIntegrations: ProviderIntegrationsStore = ProviderIntegrationsStore()) {
+    init(store: WorkspaceStore = WorkspaceStore(), providerIntegrations: ProviderIntegrationsStore = ProviderIntegrationsStore(), monitoring: MonitoringStore = MonitoringStore()) {
+        _monitoring = State(initialValue: monitoring)
         _store = State(initialValue: store)
         _providerIntegrations = State(initialValue: providerIntegrations)
     }
@@ -136,7 +138,7 @@ struct WorkspaceView: View {
                         ZStack {
                             WorkspaceThemeBackdrop(theme: backgroundTheme, palette: backgroundPalette, reduceMotion: reduceMotion)
                             HStack(spacing: 0) {
-                                let toolPanelUsesFullWidth = isToolFullScreen || geometry.size.width < 568
+                                let toolPanelUsesFullWidth = isToolPanelOpen && (isToolFullScreen || geometry.size.width < 568)
                                 destinationView
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                                     .dynamicTypeSize(selectedDynamicTypeSize)
@@ -300,6 +302,10 @@ struct WorkspaceView: View {
                         .workspaceFont(size: 15, weight: .medium)
                         .tag(Destination.activity)
                         .accessibilityIdentifier("nav-activity")
+                    Label("Monitoring", systemImage: "gauge.with.dots.needle.50percent")
+                        .workspaceFont(size: 15, weight: .medium)
+                        .tag(Destination.monitoring)
+                        .accessibilityIdentifier("nav-monitoring")
                     Label("Skills", systemImage: "sparkles.rectangle.stack")
                         .workspaceFont(size: 15, weight: .medium)
                         .tag(Destination.skills)
@@ -439,6 +445,9 @@ struct WorkspaceView: View {
                     compactButton("Activity", icon: "waveform.path", selected: selection == .activity, id: "compact-nav-activity") {
                         selection = .activity
                     }
+                    compactButton("Monitoring", icon: "gauge.with.dots.needle.50percent", selected: selection == .monitoring, id: "compact-nav-monitoring") {
+                        selection = .monitoring
+                    }
                     compactButton("Skills", icon: "sparkles.rectangle.stack", selected: selection == .skills, id: "compact-nav-skills") {
                         selection = .skills
                     }
@@ -551,6 +560,7 @@ struct WorkspaceView: View {
         switch selection {
         case .allProjects, nil: "All Projects"
         case .activity: "Activity"
+        case .monitoring: "Monitoring"
         case .skills: "Skills"
         case .settings: "Settings"
         case let .project(id, _): store.repository(id: id)?.fullName ?? "Project"
@@ -565,6 +575,8 @@ struct WorkspaceView: View {
             AllProjectsView(store: store) { destination in
                 selection = destination
             }
+        case .monitoring:
+            MonitoringView(store: monitoring, integrations: providerIntegrations)
         case .activity:
             ActivityView(store: store)
         case .skills:

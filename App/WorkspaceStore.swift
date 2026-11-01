@@ -5,6 +5,7 @@ import UserNotifications
 enum Destination: Hashable {
     case allProjects
     case activity
+    case monitoring
     case skills
     case settings
     case project(Int64, ProjectPage)
