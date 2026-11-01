@@ -31,7 +31,7 @@ struct SkillsLibraryView: View {
                     catalog
                         .frame(maxWidth: 900)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if geometry.size.width < 760 {
+                } else if geometry.size.width < 900 {
                     if showsCompactDetail, let selected {
                         VStack(alignment: .leading, spacing: 12) {
                             Button {
@@ -267,110 +267,186 @@ private struct SkillDetailView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(entry.name).workspaceFont(size: 22, weight: .semibold)
-                    Text(entry.description.isEmpty ? "No description" : entry.description)
-                        .workspaceFont(.subheadline).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Menu {
-                    Button("Refresh Source") { Task { await store.refreshSkill(entry) } }
-                    Button("Remove Skill…", role: .destructive, action: remove)
-                } label: { Image(systemName: "ellipsis.circle").workspaceFont(.title2) }
-                    .menuStyle(.borderlessButton)
-                    .accessibilityLabel("Skill actions")
+        GeometryReader { geometry in
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                categoryEditor
+                if !entry.tags.isEmpty { tags }
+                metadataCards
+                if let command = entry.installCommand { installCommandCard(command) }
+                Divider()
+                filesAndPreview(width: geometry.size.width - 40)
+                    .frame(maxHeight: .infinity)
             }
-            HStack {
-                Text("Category").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .onChange(of: entry.category) { _, value in category = value }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(entry.name).workspaceFont(size: 22, weight: .semibold)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(entry.description.isEmpty ? "No description" : entry.description)
+                    .workspaceFont(.subheadline).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Menu {
+                Button("Refresh Source") { Task { await store.refreshSkill(entry) } }
+                Button("Remove Skill…", role: .destructive, action: remove)
+            } label: { Image(systemName: "ellipsis.circle").workspaceFont(.title2) }
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("Skill actions")
+        }
+    }
+
+    private var categoryEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Category").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
                 TextField("Category", text: $category)
                     .textFieldStyle(.roundedBorder)
                     .workspaceFont(.body)
                     .padding(.vertical, 4)
-                    .frame(maxWidth: 220)
-                    .onSubmit { Task { await store.skillsLibrary.setCategory(category, for: entry) } }
+                    .frame(maxWidth: .infinity)
+                    .onSubmit { saveCategory() }
                     .accessibilityIdentifier("skill-category")
-                Button("Save") { Task { await store.skillsLibrary.setCategory(category, for: entry) } }
+                Button("Save", action: saveCategory)
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     .disabled(category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || category == entry.category)
-                if entry.state == .unavailable {
-                    Label("Source unavailable; offline copy kept", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
-                        .workspaceFont(.caption).foregroundStyle(.orange)
-                }
-                Spacer()
             }
+            if entry.state == .unavailable {
+                Label("Source unavailable; offline copy kept", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+                    .workspaceFont(.caption).foregroundStyle(.orange)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var tags: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(entry.tags, id: \.self) { tag in
                     Text(tag).workspaceFont(.caption)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .workspaceSurfaceBackground(.quaternary, in: Capsule())
                 }
             }
-            HStack {
-                Text("Source: \(entry.source)").workspaceFont(.caption).foregroundStyle(.secondary).lineLimit(1)
-                if let url = entry.sourceURL.flatMap(URL.init(string:)), url.host == "github.com" {
-                    Link("Open", destination: url).workspaceFont(.caption)
-                }
-                Spacer()
-                Text("Stored: \(entry.storedFolder)").workspaceFont(.caption2).foregroundStyle(.tertiary).lineLimit(1).textSelection(.enabled)
-            }
-            if let command = entry.installCommand {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Install command").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
-                        Text(command).workspaceFont(.caption, design: .monospaced).textSelection(.enabled)
-                        if let source = entry.installCommandSource { Text(source).workspaceFont(.caption2).foregroundStyle(.tertiary) }
-                    }
-                    Spacer()
-                    Button("Copy") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(command, forType: .string)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .accessibilityIdentifier("skill-copy-command")
-                }
-                .padding(12)
-                .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-            }
-            Divider()
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Files").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
-                    List(entry.files, id: \.self, selection: $selectedFile) { file in
-                        Text(file).workspaceFont(.caption, design: .monospaced).lineLimit(1).tag(file)
-                    }
-                    .listStyle(.inset)
-                    .frame(width: 250)
-                }
-                if let preview {
-                    ScrollView {
-                        if preview.isMarkdown {
-                            MarkdownMessageView(markdown: preview.contents, id: "skill-\(entry.id)")
-                        } else {
-                            Text(preview.contents).workspaceFont(.body, design: .monospaced)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    .padding(12)
-                    .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                    .accessibilityIdentifier("skill-offline-preview")
-                } else {
-                    ContentUnavailableView(
-                        selectedFile == nil ? "No files" : "Preview unavailable",
-                        systemImage: "doc.text",
-                        description: Text(selectedFile.map { "\($0) is binary, missing, or larger than 2 MB." } ?? "This skill has no stored files.")
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(maxHeight: .infinity)
         }
-        .padding(24)
+    }
+
+    private var metadataCards: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 10, alignment: .top)], alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Source").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
+                Text(entry.source).workspaceFont(.caption).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let url = entry.sourceURL.flatMap(URL.init(string:)), url.host == "github.com" {
+                    Link("Open on GitHub", destination: url).workspaceFont(.caption)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Stored offline").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
+                Text(entry.storedFolder).workspaceFont(.caption2).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func installCommandCard(_ command: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Install command").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
+                Text(command).workspaceFont(.caption, design: .monospaced).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let source = entry.installCommandSource { Text(source).workspaceFont(.caption2).foregroundStyle(.tertiary) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Copy") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(command, forType: .string)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .accessibilityIdentifier("skill-copy-command")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private func filesAndPreview(width: CGFloat) -> some View {
+        if width >= 720 {
+            HStack(alignment: .top, spacing: 12) {
+                filesCard
+                    .frame(width: min(280, max(190, width * 0.28)))
+                previewCard
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                filesCard.frame(height: 140)
+                previewCard
+            }
+        }
+    }
+
+    private var filesCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Files · \(entry.files.count)").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
+            List(entry.files, id: \.self, selection: $selectedFile) { file in
+                Text(file).workspaceFont(.caption, design: .monospaced).lineLimit(1).tag(file)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .accessibilityIdentifier("skill-file-list")
+        }
+        .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onChange(of: entry.category) { _, value in category = value }
+        .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private var previewCard: some View {
+        if let preview {
+            ScrollView {
+                if preview.isMarkdown {
+                    MarkdownMessageView(markdown: preview.contents, id: "skill-\(entry.id)")
+                } else {
+                    Text(preview.contents).workspaceFont(.body, design: .monospaced)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            .accessibilityIdentifier("skill-offline-preview")
+        } else {
+            ContentUnavailableView(
+                selectedFile == nil ? "No files" : "Preview unavailable",
+                systemImage: "doc.text",
+                description: Text(selectedFile.map { "\($0) is binary, missing, or larger than 2 MB." } ?? "This skill has no stored files.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .workspaceSurfaceBackground(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func saveCategory() {
+        Task { await store.skillsLibrary.setCategory(category, for: entry) }
     }
 }
