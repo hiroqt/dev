@@ -187,6 +187,10 @@ After signing in to GitHub, the user can discover repositories they are permitte
 - Installing, updating, or syncing skills into agent tools. The library only catalogs and previews skills.
 - Automatically cloning every accessible repository or deleting local clones.
 
+## Password Manager — 2026-11-01
+
+User-approved scope: a Mac-only password vault unlocked with the Mac account password; no Google Authenticator, phone, separate master password, cloud sync or recovery flow. Provide a locked sidebar destination, service presets (Google, Facebook, Apple and other common services), custom services, multiple accounts, search, add/edit, reveal/hide and copy. Never collect the Mac password in app UI. Use macOS password authentication enforced by Keychain access control. Lock on navigation away, app background, sleep, session resignation and screen lock; clear revealed values/editor state and app-owned clipboard content. Clipboard copies expire after 30 seconds if unchanged. Each saved login supports deletion after a native confirmation naming the service and username; Cancel preserves it and failed writes retain existing data. No autofill, imports or export in this slice. Loss of access to the Mac account/Keychain has no app recovery mechanism.
+
 ## Decisions still needed before implementation
 
 - Register and configure the GitHub App, exact permissions, repository installation scope, and organization approval path.
