@@ -45,6 +45,8 @@ The last command is expected to report incomplete while v1 requirements remain u
 
 The three product documents and this repository's `AGENTS.md` provide the shared, persistent contract for all implementation agents.
 
+Shared workspace UI conventions are documented in [docs/ui-design-system.md](docs/ui-design-system.md).
+
 ## Monitoring
 
 Open **Monitoring** in either sidebar mode. Choose **Server / Deployment** for hosting connections and uptime, **Computer** for CPU, RAM, swap, disk and network charts, or **AI** for subscription quotas and API usage/billing. Only the selected tab’s content is displayed. Local minute samples and user-added HTTPS HEAD availability checks retain seven days in Application Support/dev/Monitoring/history.json. Sampling runs while dev is running; sleep/closed intervals are gaps. Network excludes virtual interfaces. HTTP HEAD-incompatible services can report failed checks even when their GET endpoint works.
