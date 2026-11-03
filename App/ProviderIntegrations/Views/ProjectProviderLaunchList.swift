@@ -43,33 +43,40 @@ private struct ProviderProjectRow: View {
     private var executable: URL? { integrations.executablePaths[provider] }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Toggle("\(provider.name) · \(status)", isOn: $projectEnabled)
-                .disabled(!globallyEnabled)
-                .accessibilityIdentifier("project-provider-\(provider.rawValue)-enabled")
-            Spacer(minLength: 0)
-            if executable != nil {
-                Button("Launch") {
-                    launch()
-                    if provider == .codex {
-                        Task { await integrations.refreshUsage() }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(provider.logoAssetName)
+                    .resizable().scaledToFit().frame(width: 22, height: 22)
+                    .accessibilityHidden(true)
+                Toggle("\(provider.name) · \(status)", isOn: $projectEnabled)
+                    .disabled(!globallyEnabled)
+                    .accessibilityIdentifier("project-provider-\(provider.rawValue)-enabled")
+                Spacer(minLength: 0)
+                if executable != nil {
+                    Button("Launch") {
+                        launch()
+                        if provider == .codex {
+                            Task { await integrations.refreshUsage() }
+                        }
                     }
-                }
                     .disabled(!globallyEnabled || !projectEnabled)
                     .accessibilityIdentifier("project-provider-\(provider.rawValue)-launch")
-            } else {
-                Link("Get CLI", destination: provider.setupURL)
-                    .workspaceFont(.caption)
+                } else {
+                    Link("Get CLI", destination: provider.setupURL)
+                        .workspaceFont(.caption)
+                }
+            }
+            .workspaceFont(.callout)
+            if globallyEnabled && projectEnabled {
+                Text("Usage: enter \(provider.usageCommand) in the CLI. Sign-in: \(provider.signInStatus).")
+                    .workspaceFont(.caption).foregroundStyle(.secondary)
+            } else if !globallyEnabled {
+                Text("Enable this provider in Settings to use it here.")
+                    .workspaceFont(.caption).foregroundStyle(.secondary)
             }
         }
-        .workspaceFont(.callout)
-        if globallyEnabled && projectEnabled {
-            Text("Usage: enter \(provider.usageCommand) in the CLI. Sign-in: \(provider.signInStatus).")
-                .workspaceFont(.caption).foregroundStyle(.secondary)
-        } else if !globallyEnabled {
-            Text("Enable this provider in Settings to use it here.")
-                .workspaceFont(.caption).foregroundStyle(.secondary)
-        }
+        .padding(12)
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var status: String {

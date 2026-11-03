@@ -74,7 +74,7 @@ final class WorkspaceFlowTests: XCTestCase {
         let terminal = app.descendants(matching: .any)["notch-terminal"]
         XCTAssertTrue(terminal.waitForExistence(timeout: 5))
         app.buttons["notch-widget-skills"].click()
-        XCTAssertTrue(app.textFields["notch-skills-search"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["notch-skills-search"].waitForExistence(timeout: 3))
         app.buttons["notch-widget-workspace"].click()
         XCTAssertTrue(app.buttons["Open Workspace"].exists)
         XCTAssertTrue(app.staticTexts["AI usage"].waitForExistence(timeout: 3))
@@ -196,7 +196,7 @@ final class WorkspaceFlowTests: XCTestCase {
         XCTAssertTrue(codexUsage.waitForExistence(timeout: 3))
         codexUsage.click()
         XCTAssertTrue(app.staticTexts["5-hour limit"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Unavailable"].firstMatch.exists)
+        XCTAssertEqual(codexUsage.value as? String, "Expanded")
 
         let compactSidebar = app.buttons["sidebar-toggle"]
         if compactSidebar.exists {
@@ -213,14 +213,14 @@ final class WorkspaceFlowTests: XCTestCase {
         let skills = app.descendants(matching: .any)["nav-skills"]
         XCTAssertTrue(skills.waitForExistence(timeout: 5))
         skills.click()
-        XCTAssertTrue(app.textFields["skills-search"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["skills-search"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["skills-add-folder"].exists)
 
         app.buttons["sidebar-toggle"].click()
         let compactSkills = app.buttons["compact-nav-skills"]
         XCTAssertTrue(compactSkills.waitForExistence(timeout: 3))
         compactSkills.click()
-        XCTAssertTrue(app.textFields["skills-search"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["skills-search"].waitForExistence(timeout: 3))
     }
 
     func testSkillsInstallCommandSubmitShowsValidationInThePage() throws {

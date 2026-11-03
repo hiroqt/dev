@@ -16,7 +16,7 @@ struct WorkspaceView: View {
     @State private var toolTabs: [WorkspaceToolTab] = []
     @State private var selectedToolTabID: UUID?
     @AppStorage("workspaceToolPanelWidth") private var storedToolPanelWidth = 440.0
-    @AppStorage("workspaceBackgroundTheme") private var backgroundThemeRawValue = WorkspaceBackgroundTheme.pixelMosaic.rawValue
+    @AppStorage("workspaceBackgroundTheme") private var backgroundThemeRawValue = WorkspaceBackgroundTheme.system.rawValue
     @AppStorage("workspacePixelMosaicPalette") private var pixelMosaicPaletteRawValue = WorkspaceThemePalette.aqua.rawValue
     @AppStorage("workspaceTerminalStreamPalette") private var terminalStreamPaletteRawValue = WorkspaceThemePalette.emerald.rawValue
     @AppStorage("workspaceAuroraGridPalette") private var auroraGridPaletteRawValue = WorkspaceThemePalette.aqua.rawValue
@@ -67,12 +67,13 @@ struct WorkspaceView: View {
     }
 
     private var backgroundTheme: WorkspaceBackgroundTheme {
-        WorkspaceBackgroundTheme(rawValue: backgroundThemeRawValue) ?? .pixelMosaic
+        WorkspaceBackgroundTheme(rawValue: backgroundThemeRawValue) ?? .system
     }
 
     private var backgroundPalette: WorkspaceThemePalette {
         let rawValue: String
         switch backgroundTheme {
+        case .system: rawValue = pixelMosaicPaletteRawValue
         case .pixelMosaic: rawValue = pixelMosaicPaletteRawValue
         case .terminalStream: rawValue = terminalStreamPaletteRawValue
         case .auroraGrid: rawValue = auroraGridPaletteRawValue
@@ -100,15 +101,15 @@ struct WorkspaceView: View {
                 HStack(spacing: 0) {
                     HStack {
                         Button {
-                            withAnimation(.easeInOut(duration: 0.22)) {
+                            withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
                                 isSidebarVisible.toggle()
                             }
                         } label: {
-                            Image(systemName: "sidebar.left")
-                                .frame(width: 30, height: 30)
-                                .contentShape(Rectangle())
+                            Label(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left")
                         }
-                        .buttonStyle(.plain)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
                         .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
                         .accessibilityLabel(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
                         .accessibilityIdentifier("sidebar-toggle")
@@ -118,16 +119,14 @@ struct WorkspaceView: View {
                     .frame(width: isSidebarVisible ? 240 : 52, height: 44)
                     HStack {
                         Text(openedDestinationTitle)
-                            .workspaceFont(size: 14, weight: .semibold)
+                            .workspaceFont(.headline, weight: .semibold)
                             .lineLimit(1)
                             .accessibilityIdentifier("workspace-header-title")
                         Spacer(minLength: 0)
-                        Button(action: openToolPanel) {
-                            Image(systemName: "plus")
-                                .frame(width: 30, height: 30)
-                                .contentShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
+                        Button(isToolPanelOpen ? "New tool tab" : "Open tools", systemImage: "plus", action: openToolPanel)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
                         .help(isToolPanelOpen ? "New tool tab" : "Open tools")
                         .accessibilityLabel(isToolPanelOpen ? "New tool tab" : "Open tools")
                         .accessibilityIdentifier("workspace-tools-open")
@@ -159,7 +158,7 @@ struct WorkspaceView: View {
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                                     .dynamicTypeSize(selectedDynamicTypeSize)
                                     .environment(\.workspaceFontScale, selectedFontScale)
-                                    .animation(.snappy(duration: 0.2), value: selection)
+                                    .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: selection)
                                     .opacity(toolPanelUsesFullWidth ? 0 : 1)
                                     .accessibilityHidden(toolPanelUsesFullWidth)
                                     .frame(width: toolPanelUsesFullWidth ? 0 : nil)
@@ -189,16 +188,16 @@ struct WorkspaceView: View {
                                     .frame(width: toolPanelUsesFullWidth ? geometry.size.width : toolPanelWidth(geometry.size.width))
                                     .frame(maxHeight: .infinity)
                                     .shadow(color: .black.opacity(isToolFullScreen ? 0 : 0.12), radius: 12, x: -3, y: 0)
-                                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                                    .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
                                 }
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                        .animation(.snappy(duration: 0.22), value: isToolPanelOpen)
-                        .animation(.snappy(duration: 0.24), value: isToolFullScreen)
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: isToolPanelOpen)
+                        .animation(reduceMotion ? nil : .snappy(duration: 0.24), value: isToolFullScreen)
                     }
                 }
-                .animation(.easeInOut(duration: 0.22), value: isSidebarVisible)
+                .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: isSidebarVisible)
             }
         }
         .background(workspaceBackgroundColor)
@@ -291,18 +290,14 @@ struct WorkspaceView: View {
     private var expandedSidebar: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("dev")
-                    .workspaceFont(size: 16, weight: .semibold)
+                Label("dev", systemImage: "square.grid.2x2.fill")
+                    .workspaceFont(.headline, weight: .semibold)
+                    .foregroundStyle(.primary)
                 Spacer()
-                Button {
-                    showRepositorySearch()
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .workspaceFont(size: 16)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                Button("Search repositories", systemImage: "magnifyingglass", action: showRepositorySearch)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.bordered)
+                .controlSize(.large)
                 .help("Search repositories")
                 .accessibilityLabel("Search repositories")
                 .accessibilityIdentifier("sidebar-search")
@@ -2759,21 +2754,27 @@ private struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Settings")
+                        .workspaceFont(.largeTitle, weight: .bold)
+                    Text("Make your workspace comfortable and keep connections under your control.")
+                        .workspaceFont(.body)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 4)
                 settingsCard("Appearance") {
-                    HStack {
-                        Text("Theme")
-                        Spacer()
+                    LabeledContent("Theme") {
                         Picker("Theme", selection: $workspaceAppearance) {
                             Text("System").tag("system")
                             Text("Light").tag("light")
                             Text("Dark").tag("dark")
                         }
                         .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 320)
                         .accessibilityIdentifier("appearance-theme")
                     }
-                    HStack {
-                        Text("Font Size")
-                        Spacer()
+                    LabeledContent("Font size") {
                         Picker("Font Size", selection: $workspaceFontSize) {
                             Text("Small").tag("small")
                             Text("Medium").tag("medium")
@@ -2781,6 +2782,8 @@ private struct SettingsView: View {
                             Text("XL").tag("xl")
                         }
                         .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 320)
                         .accessibilityIdentifier("appearance-font-size")
                     }
                     VStack(alignment: .leading, spacing: 8) {
@@ -2796,15 +2799,15 @@ private struct SettingsView: View {
                 }
                 settingsCard("Quick Summary") {
                     Toggle("Show notch summary", isOn: $quickSummaryEnabled)
-                    HStack {
-                        Text("PR refresh interval")
-                        Spacer()
+                    LabeledContent("PR refresh interval") {
                         Picker("PR refresh interval", selection: $quickSummaryPollingIntervalSeconds) {
                             Text("1 minute").tag(60)
                             Text("5 minutes").tag(300)
                             Text("15 minutes").tag(900)
                         }
                         .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 320)
                     }
                     Toggle("macOS notifications", isOn: $quickSummarySystemNotificationsEnabled)
                         .onChange(of: quickSummarySystemNotificationsEnabled) { _, enabled in
@@ -2854,8 +2857,7 @@ private struct SettingsView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
+        .workspaceCard()
     }
 }
 

@@ -11,11 +11,11 @@ struct ProviderUsageSummary: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label("AI usage", systemImage: "chart.bar.xaxis").workspaceFont(.subheadline, weight: .semibold)
                 Spacer()
-                Button("Refresh") { Task { await integrations.refreshUsage() } }
+                Button("Refresh", systemImage: "arrow.clockwise") { Task { await integrations.refreshUsage() } }
                     .workspaceFont(.caption)
                     .disabled(integrations.isRefreshingUsage || !canRefreshUsage)
                     .accessibilityIdentifier("provider-usage-refresh")
@@ -44,7 +44,7 @@ private struct ProviderUsageSummaryRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Button { expanded.toggle() } label: {
                 HStack {
                     Image(provider.logoAssetName)
@@ -52,6 +52,7 @@ private struct ProviderUsageSummaryRow: View {
                         .scaledToFit()
                         .frame(width: 18, height: 18)
                         .accessibilityHidden(true)
+                    Text(provider.name).workspaceFont(.callout, weight: .medium)
                     Spacer()
                     Text(statusLabel)
                         .workspaceFont(.caption).foregroundStyle(.secondary)
@@ -64,11 +65,14 @@ private struct ProviderUsageSummaryRow: View {
             .accessibilityIdentifier("provider-usage-\(provider.rawValue)")
             .accessibilityLabel("\(provider.name), \(statusLabel)")
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            .accessibilityHint("Shows plan and available usage details")
 
             if expanded {
                 usageDetails
             }
         }
+        .padding(10)
+        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var usageDetails: some View {
@@ -109,7 +113,7 @@ private struct ProviderUsageSummaryRow: View {
                 Link("Manage usage / help", destination: provider.usageGuideURL)
                     .workspaceFont(.caption)
             }
-            .padding(.leading, 20)
+            .padding(.leading, 30)
             .padding(.vertical, 4)
     }
 

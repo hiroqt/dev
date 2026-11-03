@@ -86,8 +86,12 @@ struct SkillsLibraryView: View {
 
     private var catalog: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Skills").workspaceFont(size: 21, weight: .semibold)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Skills").workspaceFont(.largeTitle, weight: .bold)
+                    Text("Find and manage skills saved for offline use.")
+                        .workspaceFont(.callout).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button {
                     Task { await store.scanAllSkillRepositories() }
@@ -99,18 +103,15 @@ struct SkillsLibraryView: View {
                 .disabled(library.isScanning)
                 .accessibilityIdentifier("skills-scan-clones")
             }
-            HStack(spacing: 10) {
-                TextField("Search name, purpose, or tags", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .workspaceFont(.body)
-                    .padding(.vertical, 5)
-                    .accessibilityIdentifier("skills-search")
-                Picker("Category", selection: $selectedCategory) {
-                    ForEach(categories, id: \.self) { Text($0).tag($0) }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    searchControl.frame(minWidth: 220)
+                    categoryControl.frame(width: 160)
                 }
-                .labelsHidden()
-                .controlSize(.large)
-                .frame(width: 160)
+                VStack(alignment: .leading, spacing: 8) {
+                    searchControl
+                    categoryControl
+                }
             }
             HStack {
                 Button {
@@ -232,6 +233,19 @@ struct SkillsLibraryView: View {
         .padding(20)
         .frame(maxHeight: .infinity)
         .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var searchControl: some View {
+        WorkspaceSearchField(prompt: "Search name, purpose, or tags", text: $searchText)
+            .frame(height: 28)
+            .accessibilityIdentifier("skills-search")
+    }
+
+    private var categoryControl: some View {
+        Picker("Category", selection: $selectedCategory) {
+            ForEach(categories, id: \.self) { Text($0).tag($0) }
+        }
+        .controlSize(.large)
     }
 
     private func submitSource() {
