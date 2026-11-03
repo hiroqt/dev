@@ -123,8 +123,6 @@ final class DevModeStore {
         availableCodex = ProviderCLIResolver.currentExecutablePaths()[.codex]
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-
     func projectID(_ url: URL) -> String {
         let standardizedPath = url.standardizedFileURL.resolvingSymlinksInPath().path
         return SHA256.hash(data: Data(standardizedPath.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -347,15 +345,6 @@ final class CodexJSONLLineBuffer: @unchecked Sendable {
         let line = String(data: pending, encoding: .utf8).map { [$0] } ?? []
         pending.removeAll()
         return line.filter { !$0.isEmpty }
-    }
-}
-
-enum CodexCLIEvent {
-    static func summary(from line: String) -> String {
-        guard let data = line.data(using: .utf8),
-              let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = event["type"] as? String else { return "Codex event received." }
-        return "Codex: \(type)"
     }
 }
 
