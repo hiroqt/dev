@@ -2,6 +2,31 @@ import Foundation
 
 enum CodexAppServerUsageCLI {
     static func read(executable: URL) -> ProviderUsageSnapshot? {
+        guard let response = request(executable: executable, method: "account/rateLimits/read") else { return nil }
+        return ProviderUsageSnapshot.parseCodexRateLimits(response)
+    }
+
+    static func models(executable: URL) -> [(id: String, name: String, efforts: [String])]? {
+        guard let response = request(executable: executable, method: "model/list", params: ["limit": 100]) else { return nil }
+        return parseModels(response)
+    }
+
+    static func parseModels(_ response: Data) -> [(id: String, name: String, efforts: [String])]? {
+        guard let object = try? JSONSerialization.jsonObject(with: response) as? [String: Any],
+              let result = object["result"] as? [String: Any],
+              let models = result["data"] as? [[String: Any]] else { return nil }
+        return models.compactMap { model in
+            guard model["hidden"] as? Bool != true,
+                  let id = model["model"] as? String,
+                  let name = model["displayName"] as? String else { return nil }
+            let efforts = (model["supportedReasoningEfforts"] as? [[String: Any]])?
+                .compactMap { $0["reasoningEffort"] as? String }
+                .filter { $0.range(of: "^[a-z][a-z0-9_-]*$", options: .regularExpression) != nil } ?? []
+            return (id, name, efforts)
+        }
+    }
+
+    private static func request(executable: URL, method: String, params: [String: Any] = [:]) -> Data? {
         let process = Process()
         let input = Pipe()
         let output = Pipe()
@@ -38,14 +63,14 @@ enum CodexAppServerUsageCLI {
         else { return nil }
 
         let initialized: [String: Any] = ["method": "initialized", "params": [:] as [String: Any]]
-        let readLimits: [String: Any] = ["method": "account/rateLimits/read", "id": 2, "params": [:] as [String: Any]]
+        let request: [String: Any] = ["method": method, "id": 2, "params": params]
         guard
             write(initialized, to: input.fileHandleForWriting),
-            write(readLimits, to: input.fileHandleForWriting),
+            write(request, to: input.fileHandleForWriting),
             let response = reader.response(id: 2)
         else { return nil }
 
-        return ProviderUsageSnapshot.parseCodexRateLimits(response)
+        return response
     }
 
     private static func write(_ message: [String: Any], to handle: FileHandle) -> Bool {
