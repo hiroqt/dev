@@ -4,7 +4,7 @@ import SwiftUI
 struct WelcomeOverviewView: View {
     @Bindable var store: WorkspaceStore
     let openProject: (Destination) -> Void
-    @AppStorage("workspaceBackgroundTheme") private var backgroundThemeRawValue = WorkspaceBackgroundTheme.pixelMosaic.rawValue
+    @AppStorage("workspaceBackgroundTheme") private var backgroundThemeRawValue = WorkspaceBackgroundTheme.system.rawValue
     @AppStorage("workspacePixelMosaicPalette") private var pixelMosaicPaletteRawValue = WorkspaceThemePalette.aqua.rawValue
     @AppStorage("workspaceTerminalStreamPalette") private var terminalStreamPaletteRawValue = WorkspaceThemePalette.emerald.rawValue
     @AppStorage("workspaceAuroraGridPalette") private var auroraGridPaletteRawValue = WorkspaceThemePalette.aqua.rawValue
@@ -123,8 +123,7 @@ struct WelcomeOverviewView: View {
             }
         }
         .padding(14)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.1)))
+        .workspaceCard()
     }
 
     private func startAction(_ title: String, detail: String, icon: String, id: String, action: @escaping () -> Void) -> some View {
@@ -196,8 +195,7 @@ struct WelcomeOverviewView: View {
             }
         }
         .padding(14)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.1)))
+        .workspaceCard()
     }
 
     private var recentPullRequestsSection: some View {
@@ -267,15 +265,14 @@ struct WelcomeOverviewView: View {
             }
         }
         .padding(14)
-        .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.1)))
+        .workspaceCard()
     }
 
     private var themeConfigurationPanel: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Theme configuration", systemImage: "paintpalette")
                 .workspaceFont(.title2, weight: .bold)
-            Text("Choose a subtle animated background for your workspace.")
+            Text("Choose a workspace background. System keeps the focus on your content.")
                 .workspaceFont(.callout).foregroundStyle(.secondary)
             ForEach(WorkspaceBackgroundTheme.allCases) { theme in
                 ThemePresetButton(
@@ -298,6 +295,7 @@ struct WelcomeOverviewView: View {
     private func palette(for theme: WorkspaceBackgroundTheme) -> WorkspaceThemePalette {
         let rawValue: String
         switch theme {
+        case .system: rawValue = pixelMosaicPaletteRawValue
         case .pixelMosaic: rawValue = pixelMosaicPaletteRawValue
         case .terminalStream: rawValue = terminalStreamPaletteRawValue
         case .auroraGrid: rawValue = auroraGridPaletteRawValue
@@ -307,6 +305,7 @@ struct WelcomeOverviewView: View {
 
     private func setPalette(_ palette: WorkspaceThemePalette, for theme: WorkspaceBackgroundTheme) {
         switch theme {
+        case .system: break
         case .pixelMosaic: pixelMosaicPaletteRawValue = palette.rawValue
         case .terminalStream: terminalStreamPaletteRawValue = palette.rawValue
         case .auroraGrid: auroraGridPaletteRawValue = palette.rawValue
@@ -445,8 +444,7 @@ private struct CloneProjectPicker: View {
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
-            TextField("Search repositories", text: $query)
-                .textFieldStyle(.roundedBorder)
+            WorkspaceSearchField(prompt: "Search repositories", text: $query)
                 .accessibilityIdentifier("clone-project-search")
             if let error = store.cloneError {
                 Label(error, systemImage: "exclamationmark.triangle").workspaceFont(.callout).foregroundStyle(.orange)

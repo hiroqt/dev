@@ -101,6 +101,7 @@ extension View {
 }
 
 enum WorkspaceBackgroundTheme: String, CaseIterable, Identifiable {
+    case system
     case pixelMosaic
     case terminalStream
     case auroraGrid
@@ -108,6 +109,7 @@ enum WorkspaceBackgroundTheme: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .system: "System"
         case .pixelMosaic: "Pixel Mosaic"
         case .terminalStream: "Terminal Stream"
         case .auroraGrid: "Aurora Wave"
@@ -115,6 +117,7 @@ enum WorkspaceBackgroundTheme: String, CaseIterable, Identifiable {
     }
     var subtitle: String {
         switch self {
+        case .system: "A calm macOS background that follows your appearance settings."
         case .pixelMosaic: "A full-screen field of large pixels shifts and reforms."
         case .terminalStream: "An animated, palette-colored ASCII field flows across the workspace."
         case .auroraGrid: "A pixelated wave rises beneath flowing glow and palette-colored sparkles."
@@ -179,7 +182,7 @@ struct ThemePresetButton: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("workspace-theme-\(theme.rawValue)")
 
-            HStack(spacing: 9) {
+            if theme != .system { HStack(spacing: 9) {
                 Text("Color")
                     .workspaceFont(.caption2)
                     .foregroundStyle(.secondary)
@@ -204,6 +207,7 @@ struct ThemePresetButton: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
+            }
         }
     }
 }
@@ -215,8 +219,14 @@ private struct ThemeSwatch: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                LinearGradient(colors: [.black, palette.secondary.opacity(0.48)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                if theme == .system {
+                    Color(nsColor: .windowBackgroundColor)
+                } else {
+                    LinearGradient(colors: [.black, palette.secondary.opacity(0.48)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                }
                 switch theme {
+                case .system:
+                    Image(systemName: "macwindow").foregroundStyle(.secondary)
                 case .pixelMosaic:
                     ForEach(0..<42, id: \.self) { index in
                         Rectangle()
@@ -266,6 +276,9 @@ struct WorkspaceThemeBackdrop: View {
     private let asciiGlyphs = Array(" .,:;+*oO8@")
 
     var body: some View {
+        if theme == .system {
+            Color.clear
+        } else {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: reduceMotion)) { timeline in
             Canvas { context, size in
                 guard size.width > 0, size.height > 0 else { return }
@@ -276,6 +289,7 @@ struct WorkspaceThemeBackdrop: View {
                     context.fill(Path(rect), with: .color(palette.secondary.opacity(0.045)))
                 }
                 switch theme {
+                case .system: break
                 case .pixelMosaic:
                     drawPixelMosaic(in: &context, size: size, time: time, palette: palette)
                 case .terminalStream:
@@ -288,6 +302,7 @@ struct WorkspaceThemeBackdrop: View {
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        }
     }
 
     private func drawPixelMosaic(in context: inout GraphicsContext, size: CGSize, time: TimeInterval, palette: WorkspaceThemePalette) {
