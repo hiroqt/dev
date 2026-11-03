@@ -3,6 +3,25 @@ import XCTest
 
 @MainActor
 final class WorkspaceFlowTests: XCTestCase {
+    func testDevModeProjectPickerOffersAddCloneAndCreate() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-devModeActive", "YES", "-devModeSelectedProjectID", ""]
+        app.launch()
+
+        XCTAssertTrue(app.groups["dev-mode-workspace"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["dev-mode-new-conversation"].exists)
+        XCTAssertTrue(app.buttons["dev-mode-add-project"].exists)
+        app.buttons["dev-mode-add-project"].click()
+        XCTAssertTrue(app.groups["dev-mode-project-picker"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["dev-mode-browse-folder"].exists)
+        XCTAssertTrue(app.buttons["dev-mode-create-project"].exists)
+        XCTAssertTrue(app.buttons["dev-mode-clone-github"].exists)
+        XCTAssertFalse(app.staticTexts["New agent task"].exists)
+        app.buttons["Cancel"].click()
+        let projectConversation = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'dev-mode-new-conversation-'" )).firstMatch
+        if projectConversation.exists { XCTAssertTrue(projectConversation.isHittable) }
+    }
+
     func testPasswordManagerStartsLocked() {
         let app = XCUIApplication()
         app.launch()
