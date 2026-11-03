@@ -7,6 +7,7 @@ final class DevAppDelegate: NSObject, NSApplicationDelegate {
     private var monitoringTask: Task<Void, Never>?
     let store = WorkspaceStore()
     let providerIntegrations = ProviderIntegrationsStore()
+    let devModeStore = DevModeStore()
     private var notchPanel: NotchSummaryPanelController?
     private var usageMonitorTask: Task<Void, Never>?
     private var settingsObserver: NSObjectProtocol?
@@ -36,7 +37,10 @@ final class DevAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
     func applicationWillTerminate(_ notification: Notification) {
+        devModeStore.stopAll()
         monitoringTask?.cancel()
         usageMonitorTask?.cancel()
         usageMonitorTask = nil
@@ -52,7 +56,7 @@ struct DevApp: App {
 
     var body: some Scene {
         WindowGroup(id: "workspace") {
-            WorkspaceView(store: appDelegate.store, providerIntegrations: appDelegate.providerIntegrations, monitoring: appDelegate.monitoring)
+            WorkspaceView(store: appDelegate.store, providerIntegrations: appDelegate.providerIntegrations, monitoring: appDelegate.monitoring, devModeStore: appDelegate.devModeStore)
                 .frame(minWidth: 900, minHeight: 600)
         }
         .windowStyle(.titleBar)

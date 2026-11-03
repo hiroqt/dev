@@ -5,6 +5,7 @@ struct WorkspaceView: View {
     @State private var store: WorkspaceStore
     @State private var providerIntegrations: ProviderIntegrationsStore
     @State private var monitoring: MonitoringStore
+    @State private var devModeStore: DevModeStore
     @State private var selection: Destination? = .allProjects
     @State private var isSidebarVisible = true
     @State private var showingRepositorySearch = false
@@ -21,14 +22,16 @@ struct WorkspaceView: View {
     @AppStorage("workspaceAuroraGridPalette") private var auroraGridPaletteRawValue = WorkspaceThemePalette.aqua.rawValue
     @AppStorage("workspaceFontSize") private var workspaceFontSize = "medium"
     @AppStorage("workspaceAppearance") private var workspaceAppearance = "system"
+    @AppStorage("devModeActive") private var devModeActive = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
 
-    init(store: WorkspaceStore = WorkspaceStore(), providerIntegrations: ProviderIntegrationsStore = ProviderIntegrationsStore(), monitoring: MonitoringStore = MonitoringStore()) {
+    init(store: WorkspaceStore = WorkspaceStore(), providerIntegrations: ProviderIntegrationsStore = ProviderIntegrationsStore(), monitoring: MonitoringStore = MonitoringStore(), devModeStore: DevModeStore = DevModeStore()) {
         _monitoring = State(initialValue: monitoring)
         _store = State(initialValue: store)
         _providerIntegrations = State(initialValue: providerIntegrations)
+        _devModeStore = State(initialValue: devModeStore)
     }
 
     private var selectedColorScheme: ColorScheme? {
@@ -78,6 +81,19 @@ struct WorkspaceView: View {
     }
 
     var body: some View {
+        Group {
+            if devModeActive {
+                DevModeWorkspace(store: devModeStore, workspace: store)
+                    .preferredColorScheme(selectedColorScheme)
+                    .dynamicTypeSize(selectedDynamicTypeSize)
+                    .environment(\.workspaceFontScale, selectedFontScale)
+            } else {
+                workspaceBody
+            }
+        }
+    }
+
+    private var workspaceBody: some View {
         ZStack {
             workspaceBackgroundColor
             VStack(spacing: 0) {
@@ -413,6 +429,17 @@ struct WorkspaceView: View {
                 .padding(.vertical, 10)
                 .accessibilityElement(children: .combine)
                 Button {
+                    devModeActive = true
+                } label: {
+                    Label("Dev Mode", systemImage: "point.3.connected.trianglepath.dotted")
+                        .workspaceFont(size: 15, weight: .medium)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .accessibilityIdentifier("nav-dev-mode")
+                Button {
                     selection = .settings
                 } label: {
                     Label("Settings", systemImage: "gearshape")
@@ -459,6 +486,9 @@ struct WorkspaceView: View {
                     }
                     compactButton("Skills", icon: "sparkles.rectangle.stack", selected: selection == .skills, id: "compact-nav-skills") {
                         selection = .skills
+                    }
+                    compactButton("Dev Mode", icon: "point.3.connected.trianglepath.dotted", selected: false, id: "compact-nav-dev-mode") {
+                        devModeActive = true
                     }
                     compactSidebarSeparator
                     ForEach(store.orderedSidebarProjects(store.clonedRepositories, key: { (repository: GitHubRepository) in "github:\(repository.id)" })) { repository in
@@ -2626,8 +2656,11 @@ func markdownBlocks(_ markdown: String) -> [MarkdownBlock] {
     return blocks
 }
 
-private struct MarkdownPreviewView: View {
+struct MarkdownPreviewView: View {
     let markdown: String
+    var fillsAvailableWidth = true
+    var readableBody = false
+    @ScaledMetric(relativeTo: .body) private var readableTextSize = 16.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -2635,7 +2668,7 @@ private struct MarkdownPreviewView: View {
                 blockView(block)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: fillsAvailableWidth ? .infinity : nil, alignment: .leading)
         .environment(\.openURL, OpenURLAction { url in
             guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
                   ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
@@ -2651,33 +2684,41 @@ private struct MarkdownPreviewView: View {
     private func blockView(_ block: MarkdownBlock) -> some View {
         switch block.style {
         case let .heading(level):
-            Text(readableMarkdown(block.text))
-                .workspaceFont(size: [0: 23, 1: 23, 2: 20, 3: 18, 4: 16, 5: 15, 6: 14][level] ?? 14, weight: .semibold)
-                .fixedSize(horizontal: false, vertical: true)
+            let size: CGFloat = [0: 23, 1: 23, 2: 20, 3: 18, 4: 16, 5: 15, 6: 14][level] ?? 14
+            if readableBody {
+                Text(readableMarkdown(block.text))
+                    .font(.system(size: max(readableTextSize, size), weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(readableMarkdown(block.text))
+                    .workspaceFont(size: size, weight: .semibold)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         case .paragraph:
-            Text(readableMarkdown(block.text))
-                .workspaceFont(.body)
-                .fixedSize(horizontal: false, vertical: true)
+            formattedBodyText(block.text)
         case .unorderedItem, .orderedItem:
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(block.style == .unorderedItem ? "•" : orderedMarker(block.style))
                     .foregroundStyle(.secondary)
-                Text(readableMarkdown(block.text))
-                    .fixedSize(horizontal: false, vertical: true)
+                formattedBodyText(block.text)
             }
             .padding(.leading, 12)
         case .quote:
             HStack(alignment: .top, spacing: 10) {
                 RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.5)).frame(width: 3)
-                Text(readableMarkdown(block.text))
+                formattedBodyText(block.text)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             .fixedSize(horizontal: false, vertical: true)
             .padding(.leading, 8)
         case .code:
-            Text(block.text)
-                .workspaceFont(.body, design: .monospaced)
+            Group {
+                if readableBody {
+                    Text(block.text).font(.system(size: readableTextSize, design: .monospaced))
+                } else {
+                    Text(block.text).workspaceFont(.body, design: .monospaced)
+                }
+            }
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
@@ -2685,6 +2726,17 @@ private struct MarkdownPreviewView: View {
         case .divider:
             Divider()
         }
+    }
+
+    private func formattedBodyText(_ text: String) -> some View {
+        Group {
+            if readableBody {
+                Text(readableMarkdown(text)).font(.system(size: readableTextSize))
+            } else {
+                Text(readableMarkdown(text)).workspaceFont(.body)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func orderedMarker(_ style: MarkdownBlockStyle) -> String {
