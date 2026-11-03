@@ -51,6 +51,16 @@ flowchart TD
     Q --> Q1[Show open PR count and three recent PRs]
     Q --> Q2[Open Workspace, Skills, Terminal, or Codex]
     Q --> Q3[Animate new PR and completed shell command events]
+    J --> DM[Enter Dev Mode]
+    DM --> DT[Create a task for a selected local project]
+    DT --> DC[Load repository state, project memory, and applicable specs]
+    DC --> DP[Define acceptance checks and permission mode]
+    DP --> DA[Assign bounded work with exclusive file ownership]
+    DA --> DX[Run Codex first; support Claude Code and Antigravity adapters]
+    DX --> DI[Review, integrate, and run required checks]
+    DI -->|Evidence passes| DD[Present diff and mark Passed]
+    DI -->|Failure or missing evidence| DR[Show Needs attention and preserve work]
+    DD --> DMEM[Update task record and shared project memory]
 ```
 
 ## Detailed screens and actions
@@ -149,6 +159,18 @@ flowchart TD
 - Launch Codex with `codex`, Antigravity with `agy`, and Claude Code with `claude` in the selected project's terminal. Missing CLIs show official setup links; dev never installs them or sends project context.
 - Show Codex as Connected only after the user's explicit `codex login status` check succeeds. Antigravity and Claude sign-in remain Unknown in dev; verify inside their CLIs.
 - Show expandable Codex, Antigravity, and Claude usage rows in the sidebar and Quick Summary; the expanded notch shares this usage panel, and the compact sidebar opens it in a sheet. Refresh Antigravity with the read-only `agy -p /usage --output-format json` and `agy -p /credits --output-format json` commands; refresh Codex with `codex app-server --listen stdio://` and its structured `account/rateLimits/read` response. Refresh on demand and every five minutes while enabled, and Codex after launching its CLI. Use only structured fields, detect the returned Codex plan when available, and keep the current snapshot in memory. In the Codex terminal, typing the exact `/status` or `/usage` command triggers an immediate refresh without reading the terminal response. Codex protocol failures show Unavailable; Claude shows Unavailable with provider usage help links. Do not parse interactive output or infer limits from plan labels.
+
+### 11. Dev Mode agent tasks
+
+- Entering Dev Mode replaces the normal workspace content with a full-area workbench. The left rail lists projects and their saved conversations; selecting a fresh project opens an empty conversation view with a composer. The center shows the conversation and agent activity; a collapsible right panel shows project context. Dedicated settings cover agents, permissions, coordination, memory, and verification.
+- A task form and acceptance-criteria fields are not prerequisites for starting a conversation. The first user message in a selected project creates and saves a conversation under that project's sidebar entry. Coding work may then be performed through that conversation and evaluated against its request and applicable specification. Codex is the priority CLI adapter; Claude Code and Antigravity use provider-specific adapters when reliable lifecycle controls exist. Do not use terminal-screen scraping as status authority.
+- Before dispatch, capture current revision and dirty files, load relevant private project memory and repository requirements, and define acceptance criteria, file ownership, required checks, and permission mode. Material ambiguity pauses for user input.
+- Multiple builders may execute concurrently only with disjoint file ownership, preferably in separate worktrees. A coordinator owns task state and integrates results serially. Flag conflicting or unexpected edits; never overwrite pre-existing user changes. Serialize or reassign overlapping work.
+- Closing a window leaves tasks running. Quitting dev stops child agent processes and checkpoints task state/work; reopening reconciles source and sessions before offering resume and never blindly replays stale prompts.
+- Shared project memory is the private per-project `CONTEXT.md`; task execution state and evidence are stored locally in app support. Only the coordinator updates project memory after validating structured agent handoffs. Keep secrets and unnecessary terminal output out of both.
+- The user selects Full access, Ask approval, or Ask me. The harness enforces supported action policy. These modes cannot widen hard security/product boundaries. Project cwd and worktrees are not sandboxes. Before first task execution, the user may remember provider/source consent per project; without it, the task cannot start. Consent can be revoked in Dev Mode settings. Current Codex `exec` limitation: Ask me is blocked, and approval requests cannot be shown in-app, so escalated actions in Ask approval mode fail closed; a host-mediated approval flow remains incomplete.
+- Mark Passed only when required checks succeed on the integrated revision, the result meets the user's goal and applicable spec, file conflicts are resolved, reviewer findings are addressed or explicitly non-blocking, and evidence is available. Otherwise show Incomplete/Needs attention with the missing check, failure, or decision.
+- Failure, cancellation, provider exit, and app termination preserve diffs and task evidence. Bound retries and concurrent work. A provider completion claim or exit code alone never passes the task.
 
 ## Important edge cases
 
