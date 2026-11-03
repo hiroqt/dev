@@ -25,15 +25,16 @@ struct MonitoringView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Monitoring").workspaceFont(.largeTitle, weight: .bold)
-                            Text("Your Mac, deployments, and AI accounts in one place.").foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Label("Local monitoring", systemImage: "desktopcomputer").foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 28) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("WORKSPACE HEALTH", systemImage: "waveform.path.ecg")
+                            .workspaceFont(.caption, weight: .semibold)
+                            .foregroundStyle(.tint)
+                        Text("Monitoring").workspaceFont(.largeTitle, weight: .bold)
+                        Text("Keep an eye on your Mac, deployments, and connected AI accounts.")
+                            .workspaceFont(.subheadline).foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .id("monitoring-top")
                     Picker("Monitoring category", selection: $tab) {
                         ForEach(MonitoringTab.allCases) { item in
@@ -41,6 +42,7 @@ struct MonitoringView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .frame(maxWidth: 540)
                     .accessibilityIdentifier("monitoring-tabs")
                     if let error = store.historyError { warning(error) }
                     switch tab {
@@ -74,6 +76,7 @@ struct MonitoringView: View {
     private var computerSection: some View {
         VStack(alignment: .leading, spacing: 24) {
             if let error = store.systemError { warning(error) }
+            sectionHeading("Computer", subtitle: "Live system readings from this Mac", icon: "desktopcomputer")
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), alignment: .leading)], spacing: 12) {
                 metric("CPU", value: store.current?.cpuPercent.map { String(format: "%.1f%%", $0) } ?? "Sampling…", icon: "cpu")
                 metric("Memory", value: store.current.map { "\(bytes($0.memoryUsed)) / \(bytes($0.memoryTotal))" } ?? "Sampling…", icon: "memorychip")
@@ -86,7 +89,7 @@ struct MonitoringView: View {
             ComputerStorageView()
             if let sample = store.current, sample.diskFree < 10_000_000_000 { warning("Less than 10 GB disk space available.") }
             HStack {
-                Text("Mac activity").workspaceFont(.title2, weight: .semibold)
+                sectionHeading("Mac activity", subtitle: "Sampled history with gaps shown", icon: "chart.xyaxis.line")
                 Spacer()
                 Picker("History", selection: $hours) {
                     Text("1 hour").tag(1)
@@ -151,7 +154,7 @@ struct MonitoringView: View {
 
     private var aiSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("AI subscription quotas").workspaceFont(.title2, weight: .semibold)
+            sectionHeading("AI subscription quotas", subtitle: "Usage from connected providers", icon: "sparkles")
             ProviderUsageSummary(integrations: integrations)
             Text("Subscription quotas are separate from API charges. Claude subscription usage remains unavailable until a supported source is connected.")
                 .workspaceFont(.caption).foregroundStyle(.secondary)
@@ -160,48 +163,68 @@ struct MonitoringView: View {
 
     private var uptimeSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Website uptime").workspaceFont(.title2, weight: .semibold)
+            sectionHeading("Website uptime", subtitle: "Checks run locally while dev is open", icon: "point.3.connected.trianglepath.dotted")
             Text("Observed HTTPS HEAD checks from this Mac, once per minute (endpoints must support HEAD). Availability is the percentage of successful sampled checks, not continuous uptime.")
                 .workspaceFont(.caption).foregroundStyle(.secondary)
-            HStack {
-                TextField("https://your-app.com/health", text: $targetURL).textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("monitoring-uptime-url")
-                Button("Add monitor") {
-                    Task {
-                        if await store.addTarget(targetURL) { targetURL = ""; targetError = false } else { targetError = true }
-                    }
-                }.disabled(targetURL.isEmpty)
+            ViewThatFits(in: .horizontal) {
+                HStack { uptimeField; addMonitorButton }
+                VStack(alignment: .leading) { uptimeField; addMonitorButton }
             }
             if targetError { warning("Use a unique HTTPS URL without credentials, query, or fragment. Up to 20 targets are supported.") }
-            if store.targets.isEmpty { Text("Add a URL to start measuring availability.").foregroundStyle(.secondary) }
+            if store.targets.isEmpty {
+                ContentUnavailableView("No sites monitored", systemImage: "globe", description: Text("Add an HTTPS URL to start measuring observed availability."))
+                    .frame(maxWidth: .infinity, minHeight: 130)
+            }
             ForEach(store.targets) { target in
                 let checks = store.observations.filter { $0.targetID == target.id }
                 let latest = checks.last
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Link(target.url.absoluteString, destination: target.url)
-                        Text(latest.map { "\($0.healthy ? "Responding" : "Check failed") · HTTP \($0.status.map(String.init) ?? "unavailable") · \($0.date.formatted(date: .abbreviated, time: .shortened))" } ?? "Waiting for first check")
-                            .workspaceFont(.caption).foregroundStyle(latest?.healthy == false ? .orange : .secondary)
-                        if let latest, Date.now.timeIntervalSince(latest.date) > 120 { Text("Stale · no recent check").foregroundStyle(.orange) }
-                    }
-                    Spacer()
+                let details = VStack(alignment: .leading, spacing: 4) {
+                    Link(target.url.absoluteString, destination: target.url)
+                        .lineLimit(1).truncationMode(.middle)
+                    Text(latest.map { "\($0.healthy ? "Responding" : "Check failed") · HTTP \($0.status.map(String.init) ?? "unavailable") · \($0.date.formatted(date: .abbreviated, time: .shortened))" } ?? "Waiting for first check")
+                        .workspaceFont(.caption).foregroundStyle(latest?.healthy == false ? .orange : .secondary)
+                    if let latest, Date.now.timeIntervalSince(latest.date) > 120 { Text("Stale · no recent check").foregroundStyle(.orange) }
+                }
+                let metrics = HStack(spacing: 12) {
                     if !checks.isEmpty {
                         Text(String(format: "%.1f%% observed", 100 * Double(checks.filter(\.healthy).count) / Double(checks.count)))
                     }
                     if let ms = latest?.milliseconds { Text(String(format: "%.0f ms", ms)).foregroundStyle(.secondary) }
-                    Button("Remove", systemImage: "minus.circle") { Task { await store.removeTarget(target) } }.labelStyle(.iconOnly)
-                        .accessibilityLabel("Remove monitor for \(target.url.host ?? "website")")
                 }
+                let remove = Button("Remove", systemImage: "minus.circle") { Task { await store.removeTarget(target) } }
+                    .labelStyle(.iconOnly)
+                    .accessibilityLabel("Remove monitor for \(target.url.host ?? "website")")
+                ViewThatFits(in: .horizontal) {
+                    HStack { details; Spacer(); metrics; remove }
+                    VStack(alignment: .leading) { details; HStack { metrics; Spacer(); remove } }
+                }
+                .padding(.vertical, 6)
                 Divider()
             }
         }.monitoringCard()
+    }
+
+    private var uptimeField: some View {
+        TextField("https://your-app.com/health", text: $targetURL)
+            .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier("monitoring-uptime-url")
+    }
+
+    private var addMonitorButton: some View {
+        Button("Add monitor", systemImage: "plus") {
+            Task {
+                if await store.addTarget(targetURL) { targetURL = ""; targetError = false } else { targetError = true }
+            }
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(targetURL.isEmpty)
     }
 
     private func connectionsSection(_ connections: [MonitoringConnection], title: String) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             if tab != .server || deploymentProjectID == nil {
                 HStack {
-                    Text(title).workspaceFont(.title2, weight: .semibold)
+                    sectionHeading(title, subtitle: "Connected services and their latest reported state", icon: tab == .server ? "server.rack" : "chart.bar.xaxis")
                     Spacer()
                     Button("Refresh connections") { Task { await store.refreshRemote() } }.disabled(store.refreshing)
                 }
@@ -279,10 +302,37 @@ struct MonitoringView: View {
     }
 
     private func metric(_ title: String, value: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: icon).workspaceFont(.subheadline).foregroundStyle(.secondary)
-            Text(value).workspaceFont(.title3, weight: .semibold).monospacedDigit()
-        }.frame(maxWidth: .infinity, minHeight: 70, alignment: .leading).monitoringCard()
+        VStack(alignment: .leading, spacing: 18) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.tint)
+                .frame(width: 34, height: 34)
+                .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).workspaceFont(.caption).foregroundStyle(.secondary)
+                Text(value).workspaceFont(.title3, weight: .semibold).monospacedDigit()
+                    .minimumScaleFactor(0.8).lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
+        .monitoringCard()
+        .accessibilityElement(children: .combine)
+    }
+
+    private func sectionHeading(_ title: String, subtitle: String, icon: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .workspaceFont(.title3)
+                .foregroundStyle(.tint)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).workspaceFont(.title2, weight: .semibold)
+                Text(subtitle).workspaceFont(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private func warning(_ text: String) -> some View {

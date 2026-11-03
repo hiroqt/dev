@@ -26,21 +26,31 @@ struct QuickSummaryView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("dev", systemImage: "waveform.path.ecg").workspaceFont(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("dev").workspaceFont(.title2, weight: .semibold)
+                    Text("Project summary").workspaceFont(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Open Workspace") { open(.workspace) }
                     .buttonStyle(.borderedProminent)
             }
             if store.repositories.isEmpty {
-                Text("Connect GitHub to see project activity.").foregroundStyle(.secondary)
+                Label("Connect GitHub to see project activity.", systemImage: "tray")
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 12)
             } else {
                 HStack {
-                    Text("Open pull requests").foregroundStyle(.secondary)
+                    Label("Open pull requests", systemImage: "arrow.triangle.pull")
+                        .workspaceFont(.subheadline, weight: .medium)
                     Spacer()
-                    Text(store.openPullRequestCounts.values.reduce(0, +).formatted()).fontWeight(.semibold)
+                    Text(store.openPullRequestCounts.values.reduce(0, +).formatted())
+                        .workspaceFont(.title3, weight: .semibold, monospacedDigits: true)
+                        .accessibilityLabel("\(store.openPullRequestCounts.values.reduce(0, +)) open pull requests")
                 }
+                .padding(12)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 ForEach(store.repositories
                     .sorted { (store.openPullRequestCounts[$0.id] ?? 0) > (store.openPullRequestCounts[$1.id] ?? 0) }
                     .filter { (store.openPullRequestCounts[$0.id] ?? 0) > 0 }
@@ -77,8 +87,8 @@ struct QuickSummaryView: View {
                 .transition(reduceMotion ? .identity : .move(edge: .top).combined(with: .opacity))
                 .accessibilityIdentifier("summary-latest-event")
             }
-            Divider()
             if showsShortcuts {
+                Text("Quick actions").workspaceFont(.caption, weight: .semibold).foregroundStyle(.secondary)
                 HStack(spacing: 8) {
                     shortcut("Workspace", icon: "square.grid.2x2") { open(.workspace) }
                     shortcut("Skills", icon: "sparkles.rectangle.stack") { open(.skills) }
@@ -86,6 +96,7 @@ struct QuickSummaryView: View {
                     if codexProviderEnabled { shortcut("Codex", icon: "sparkles") { open(.codex) } }
                 }
             }
+            Divider()
             ProviderUsageSummary(integrations: providerIntegrations)
             HStack {
                 Label("Tasks", systemImage: "checklist").foregroundStyle(.secondary)
@@ -93,6 +104,7 @@ struct QuickSummaryView: View {
                 Text("Coming soon").workspaceFont(.caption).foregroundStyle(.tertiary)
             }
             .accessibilityIdentifier("summary-tasks-coming-soon")
+            .padding(.top, 2)
         }
         .workspaceFont(.body)
         .padding(16)
@@ -132,16 +144,17 @@ struct NotchSummaryPanelView: View {
     @State private var terminalStarted = false
     @State private var codexStarted = false
     @State private var skillSearch = ""
-    @AppStorage("workspaceBackgroundTheme") private var themeRaw = WorkspaceBackgroundTheme.pixelMosaic.rawValue
+    @AppStorage("workspaceBackgroundTheme") private var themeRaw = WorkspaceBackgroundTheme.system.rawValue
     @AppStorage("workspacePixelMosaicPalette") private var pixelPalette = WorkspaceThemePalette.aqua.rawValue
     @AppStorage("workspaceTerminalStreamPalette") private var terminalPalette = WorkspaceThemePalette.emerald.rawValue
     @AppStorage("workspaceAuroraGridPalette") private var auroraPalette = WorkspaceThemePalette.aqua.rawValue
     @AppStorage("providerIntegration.codex.enabled") private var codexProviderEnabled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var theme: WorkspaceBackgroundTheme { WorkspaceBackgroundTheme(rawValue: themeRaw) ?? .pixelMosaic }
+    private var theme: WorkspaceBackgroundTheme { WorkspaceBackgroundTheme(rawValue: themeRaw) ?? .system }
     private var palette: WorkspaceThemePalette {
         let raw = switch theme {
+        case .system: pixelPalette
         case .pixelMosaic: pixelPalette
         case .terminalStream: terminalPalette
         case .auroraGrid: auroraPalette
@@ -281,8 +294,8 @@ struct NotchSummaryPanelView: View {
     private var skillsPreview: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Skills").workspaceFont(.headline)
-            TextField("Search skills", text: $skillSearch)
-                .textFieldStyle(.roundedBorder)
+            WorkspaceSearchField(prompt: "Search skills", text: $skillSearch)
+                .frame(height: 28)
                 .accessibilityIdentifier("notch-skills-search")
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {

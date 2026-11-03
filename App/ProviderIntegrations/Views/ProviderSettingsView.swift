@@ -4,9 +4,10 @@ struct ProviderSettingsView: View {
     @Bindable var integrations: ProviderIntegrationsStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Provider apps and CLIs are separate sign-ins. dev launches them locally and does not send project files or prompts.")
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Coding providers").workspaceFont(.title2, weight: .semibold)
+            Text("Launch local provider CLIs from a project. Each provider has its own sign-in; dev does not send files or prompts.")
+                .workspaceFont(.callout).foregroundStyle(.secondary)
             ForEach(CodingProvider.allCases) { provider in
                 ProviderSettingsCard(provider: provider, integrations: integrations)
             }
@@ -33,22 +34,30 @@ private struct ProviderSettingsCard: View {
     private var installed: Bool { integrations.executablePaths[provider] != nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle("Enable \(provider.name)", isOn: $isEnabled)
-                .accessibilityIdentifier("provider-global-\(provider.rawValue)-enabled")
-                .onChange(of: isEnabled) { _, enabled in
-                    guard provider == .antigravity || provider == .codex else { return }
-                    Task {
-                        if enabled { await integrations.refreshAvailability() }
-                        await integrations.refreshUsage()
-                    }
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(provider.logoAssetName)
+                    .resizable().scaledToFit().frame(width: 32, height: 32)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(provider.name).workspaceFont(.headline)
+                    Text(integrations.isRefreshing ? "Checking CLI…" : installed ? "CLI available" : "CLI not found")
+                        .workspaceFont(.caption).foregroundStyle(.secondary)
                 }
-            HStack {
-                Text("CLI")
                 Spacer()
-                Text(integrations.isRefreshing ? "Checking…" : installed ? "Available" : "Not found")
-                    .foregroundStyle(.secondary)
+                Toggle("Enable \(provider.name)", isOn: $isEnabled)
+                    .labelsHidden()
+                    .accessibilityLabel("Enable \(provider.name)")
+                    .accessibilityIdentifier("provider-global-\(provider.rawValue)-enabled")
+                    .onChange(of: isEnabled) { _, enabled in
+                        guard provider == .antigravity || provider == .codex else { return }
+                        Task {
+                            if enabled { await integrations.refreshAvailability() }
+                            await integrations.refreshUsage()
+                        }
+                    }
             }
+            Divider()
             HStack {
                 Text("Plan (optional)")
                 Spacer()
@@ -91,7 +100,7 @@ private struct ProviderSettingsCard: View {
             Link("Setup and CLI documentation", destination: provider.setupURL)
                 .workspaceFont(.caption)
         }
-        .padding(12)
+        .padding(16)
         .workspaceSurfaceBackground(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 

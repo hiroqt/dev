@@ -118,9 +118,13 @@ struct PasswordManagerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Label("Password Manager", systemImage: "lock.shield")
-                    .workspaceFont(size: 24, weight: .semibold)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label("Password Manager", systemImage: "lock.shield")
+                        .workspaceFont(.largeTitle, weight: .bold)
+                    Text("Keep saved logins protected by this Mac.")
+                        .workspaceFont(.callout).foregroundStyle(.secondary)
+                }
                 Spacer()
                 if store.unlocked {
                     Button("Add Login", systemImage: "plus") {
@@ -133,17 +137,20 @@ struct PasswordManagerView: View {
                 Text(error).foregroundStyle(.red).accessibilityIdentifier("vault-error")
             }
             if store.unlocked {
-                TextField("Search service or username", text: $search)
-                    .textFieldStyle(.roundedBorder)
+                WorkspaceSearchField(prompt: "Search service or username", text: $search)
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        if store.entries.isEmpty {
-                            Text("No saved logins. Add Google, Facebook, Apple or any other service.")
-                                .foregroundStyle(.secondary).padding()
-                        }
-                        ForEach(store.entries.filter {
+                        let visibleEntries = store.entries.filter {
                             search.isEmpty || $0.service.localizedCaseInsensitiveContains(search) || $0.username.localizedCaseInsensitiveContains(search)
-                        }) { entry in
+                        }
+                        if store.entries.isEmpty {
+                            ContentUnavailableView("No saved logins", systemImage: "key", description: Text("Add a login to keep it in your Mac's Keychain."))
+                                .frame(maxWidth: .infinity, minHeight: 180)
+                        } else if visibleEntries.isEmpty {
+                            ContentUnavailableView.search(text: search)
+                                .frame(maxWidth: .infinity, minHeight: 180)
+                        }
+                        ForEach(visibleEntries) { entry in
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(entry.service).workspaceFont(size: 17, weight: .semibold)
                                 Text(entry.username).textSelection(.enabled)
@@ -183,7 +190,7 @@ struct PasswordManagerView: View {
                                 .buttonStyle(.borderless)
 
                             }
-                            .padding().background(.background.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
+                            .padding().workspaceCard()
                         }
                     }
                 }
@@ -247,20 +254,24 @@ private struct PasswordEntryEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Save Login").workspaceFont(size: 20, weight: .semibold)
-            Picker("Service preset", selection: $entry.service) {
-                ForEach(Array(Set(services + [entry.service])).sorted(), id: \.self) { Text($0).tag($0) }
+            Text("Save Login").workspaceFont(.title2, weight: .semibold)
+            Form {
+                Picker("Service preset", selection: $entry.service) {
+                    ForEach(Array(Set(services + [entry.service])).sorted(), id: \.self) { Text($0).tag($0) }
+                }
+                TextField("Service", text: $entry.service)
+                TextField("Email or username", text: $entry.username)
+                SecureField("Password", text: $entry.password)
             }
-            TextField("Service", text: $entry.service)
-            TextField("Email or username", text: $entry.username)
-            SecureField("Password", text: $entry.password)
+            .formStyle(.grouped)
             if let error = store.error { Text(error).foregroundStyle(.red) }
             HStack {
                 Button("Cancel", action: close).keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Save") { Task { if await store.save(entry) { close() } } }
+                    .buttonStyle(.borderedProminent)
                     .disabled(!entry.isValid || store.busy).keyboardShortcut(.defaultAction)
             }
-        }.padding(24).frame(width: 420)
+        }.padding(24).frame(minWidth: 360, idealWidth: 440).frame(minHeight: 330)
     }
 }
