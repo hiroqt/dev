@@ -158,6 +158,7 @@ final class WorkspaceStore {
     private let historyAPI: any GitHubProjectHistoryProviding
     private let pullRequestAPI: any GitHubPullRequestManaging
     private let contributionAPI: any GitHubContributionProviding
+    private let actionsAPI: any GitHubActionsProviding
     private let viewerAPI: any GitHubViewerProviding
     private let deviceFlow: any GitHubDeviceAuthorizing
     private let tokenStore: any GitHubTokenStoring
@@ -231,6 +232,7 @@ final class WorkspaceStore {
         api: any GitHubRepositoryProviding = GitHubAPIClient(),
         historyAPI: any GitHubProjectHistoryProviding = GitHubAPIClient(),
         pullRequestAPI: any GitHubPullRequestManaging = GitHubAPIClient(),
+        actionsAPI: any GitHubActionsProviding = GitHubAPIClient(),
         contributionAPI: any GitHubContributionProviding = GitHubAPIClient(),
         viewerAPI: any GitHubViewerProviding = GitHubAPIClient(),
         deviceFlow: any GitHubDeviceAuthorizing = GitHubDeviceFlow(),
@@ -240,6 +242,7 @@ final class WorkspaceStore {
         self.api = api
         self.historyAPI = historyAPI
         self.pullRequestAPI = pullRequestAPI
+        self.actionsAPI = actionsAPI
         self.contributionAPI = contributionAPI
         self.viewerAPI = viewerAPI
         self.deviceFlow = deviceFlow
@@ -478,6 +481,24 @@ final class WorkspaceStore {
 
     func repository(id: Int64) -> GitHubRepository? {
         repositories.first { $0.id == id }
+    }
+
+    func githubRepository(forLocalPath path: String) async -> GitHubRepository? {
+        let identity = await Task.detached(priority: .utility) {
+            DevModeGitWorktree.githubRemoteName(at: URL(fileURLWithPath: path))
+        }.value
+        guard let identity else { return nil }
+        return repositories.first { $0.fullName.caseInsensitiveCompare(identity) == .orderedSame }
+    }
+
+    func actionsWorkflows(repository: GitHubRepository) async throws -> [GitHubWorkflow] {
+        let token = try await currentAccessToken()
+        return try await actionsAPI.workflows(repository: repository, accessToken: token)
+    }
+
+    func dispatchAction(repository: GitHubRepository, workflow: GitHubWorkflow, ref: String, inputs: [String: String] = [:]) async throws {
+        let token = try await currentAccessToken()
+        try await actionsAPI.dispatchWorkflow(repository: repository, workflowID: workflow.id, ref: ref, inputs: inputs, accessToken: token)
     }
 
     var clonedRepositories: [GitHubRepository] {
