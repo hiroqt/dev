@@ -22,7 +22,7 @@ enum DevModePermission: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .fullAccess: "Codex can run commands and change files with your macOS account permissions."
         case .askApproval: "Codex works in the project and asks before commands or edits that need approval."
-        case .askMe: "Codex starts read-only and asks before each command or file change that needs elevated access."
+        case .askMe: "Read-only commands may run without asking. Codex asks before actions that need elevated access."
         }
     }
 

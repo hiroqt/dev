@@ -92,11 +92,11 @@ The current labels are Access approved by me, Ask question (default), and Approv
 
 - **Full access:** agent actions within the declared task/project scope proceed without per-action prompts, subject to hard app/repository restrictions.
 - **Ask approval:** the harness pauses before configured sensitive actions and shows the exact action, target, and impact for approval.
-- **Ask me:** the harness asks the user before each agent action that changes files or executes commands.
+- **Ask me (current limit):** Codex runs in a read-only sandbox and asks before actions that need elevated access. Routine read-only commands may run without a prompt, so this does not yet meet the planned requirement to ask before every command or file edit.
 
 All modes must preserve hard restrictions: no hidden GitHub writes, no secrets in prompts/logs, no destructive cleanup of user data, and no claim that project cwd confines filesystem access. The UI must explain which process is requesting approval and provide a stop/cancel path. Exact action categories and whether tests/build commands require prompts are open policy details.
 
-**Current Codex integration:** Approval-capable tasks use `codex app-server` and surface supported command/file approval requests to the user. The app-server process inherits normal Codex configuration, hooks, and trust behavior; Dev Mode never enables a hook-trust bypass or installs commands. `/review` invokes the installed `codex review --uncommitted` command on demand and shows its result in the conversation. The default Ask question mode uses workspace-write and on-request approvals. App-server approval behavior must be verified with a trusted disposable project before claiming live end-to-end proof.
+**Current Codex integration:** Approval-capable tasks use `codex app-server` and surface supported command/file approval requests to the user. The app-server process inherits normal Codex configuration, hooks, and trust behavior; Dev Mode never enables a hook-trust bypass or installs commands. `/review` invokes the installed `codex review --uncommitted` command on demand and shows its result in the conversation. The default Ask question mode uses workspace-write and on-request approvals. Ask me uses read-only and on-request; routine read-only commands can run without prompting, which is a known gap against the per-command confirmation requirement. App-server approval behavior must be verified with a trusted disposable project before claiming live end-to-end proof.
 
 ## Verification and completion gate
 
