@@ -84,7 +84,7 @@ struct WorkspaceView: View {
     var body: some View {
         Group {
             if devModeActive {
-                DevModeWorkspace(store: devModeStore, workspace: store)
+                DevModeWorkspace(store: devModeStore, workspace: store, integrations: providerIntegrations)
                     .preferredColorScheme(selectedColorScheme)
                     .dynamicTypeSize(selectedDynamicTypeSize)
                     .environment(\.workspaceFontScale, selectedFontScale)

@@ -20,6 +20,7 @@ The supplied ORCA screenshots are visual references for a dense workbench: navig
 - Multiple builders may work in parallel. The coordinator assigns disjoint file ownership; two builders must not edit the same file concurrently. Work that cannot be divided safely is serialized.
 - Completion requires passing the task's required tests/checks and alignment with the user's goal and applicable specification. The harness presents evidence tied to the final revision.
 - Shared project context is persistent so reopened tasks can use settled decisions and prior verified work rather than asking the user to repeat them. The coordinator is the sole writer of shared project memory.
+- Dev Mode has a locally persisted global instructions field without an application-imposed character limit. It is added to the first prompt of new Codex conversations and does not overwrite user or repository `AGENTS.md` files. Codex reasoning effort defaults to low unless changed through `/model`.
 - A project can be added, cloned, or created without creating a task. Selecting it opens the conversation composer; the first sent message creates a conversation saved under that project and starts the provider only after per-project consent is remembered.
 - The composer grows with entered lines up to a readable limit. Assistant replies render Markdown; user messages align to the right edge of the available conversation area and assistant replies to the left. Bubbles wrap and stay capped to a readable width. Active work uses an animated, accessible status indicator.
 - Conversation history has per-conversation rename and delete actions. Deletion requires confirmation, stops an active session, and removes only the conversation record; it never reverts project file changes. Permission mode remains editable in the composer for the next launch/resume.
@@ -87,15 +88,15 @@ Worktree separation prevents accidental overlap in normal execution but does not
 
 ## Permission modes
 
-The labels are settled; precise behavior must be finalized as part of the product/security contract before implementation.
+The current labels are Access approved by me, Ask question (default), and Approve. The first two use Codex app-server policies; the exact semantics and safety review of the Approve mode remain subject to runtime verification.
 
 - **Full access:** agent actions within the declared task/project scope proceed without per-action prompts, subject to hard app/repository restrictions.
 - **Ask approval:** the harness pauses before configured sensitive actions and shows the exact action, target, and impact for approval.
-- **Ask me:** the harness asks the user before each agent action that changes files or executes commands.
+- **Ask me (current limit):** Codex runs in a read-only sandbox and asks before actions that need elevated access. Routine read-only commands may run without a prompt, so this does not yet meet the planned requirement to ask before every command or file edit.
 
 All modes must preserve hard restrictions: no hidden GitHub writes, no secrets in prompts/logs, no destructive cleanup of user data, and no claim that project cwd confines filesystem access. The UI must explain which process is requesting approval and provide a stop/cancel path. Exact action categories and whether tests/build commands require prompts are open policy details.
 
-**Current Codex exec limitation:** Full access and workspace-write/on-request flags are passed to the CLI, while Ask me is blocked. Codex `exec` does not provide a host approval UI channel; it rejects command/file approval requests. In Ask approval mode, any action needing escalation therefore fails closed and the task may stop instead of asking the user. Do not describe this as an implemented interactive approval flow. Revisit this when the provider exposes a supported host-mediated approval interface.
+**Current Codex integration:** Approval-capable tasks use `codex app-server` and surface supported command/file approval requests to the user. The app-server process inherits normal Codex configuration, hooks, and trust behavior; Dev Mode never enables a hook-trust bypass or installs commands. `/review` invokes the installed `codex review --uncommitted` command on demand and shows its result in the conversation. The default Ask question mode uses workspace-write and on-request approvals. Ask me uses read-only and on-request; routine read-only commands can run without prompting, which is a known gap against the per-command confirmation requirement. App-server approval behavior must be verified with a trusted disposable project before claiming live end-to-end proof.
 
 ## Verification and completion gate
 
@@ -147,7 +148,7 @@ Do not start with multiple concurrent builders. First prove the task lifecycle, 
 
 ## Existing contract impact
 
-The original `dev` v1 contract excluded app-managed source editing and creation of Git worktrees. The user approved Dev Mode, selected remembered per-project provider/source consent, and approved the three permission modes. Current implementation is an initial Codex task slice; parallel builder coordination, worktree integration, host-mediated approval for Ask approval, the Ask me approval mechanism, reviewer orchestration, shared-memory outcome updates, and the full verification gate remain incomplete.
+The original `dev` v1 contract excluded app-managed source editing and creation of Git worktrees. The user approved Dev Mode, selected remembered per-project provider/source consent, and approved the three permission modes. Current implementation remains an initial Codex task slice. Dev Mode adds local worktree creation, selected GitHub Actions workflow dispatch, and app-server approval prompts; end-to-end UI/live-account verification, reviewer orchestration, shared-memory outcome updates, and the full verification gate remain incomplete.
 
 ## Reference handling
 

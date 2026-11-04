@@ -69,6 +69,86 @@ final class DevModeTests: XCTestCase {
     }
 
     @MainActor
+    func testGlobalDevModeInstructionsPersistWithoutTruncation() {
+        let defaults = UserDefaults.standard
+        let key = "devModeGlobalInstructions"
+        let originalValue = defaults.object(forKey: key)
+        defer {
+            if let originalValue { defaults.set(originalValue, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+
+        let instructions = String(repeating: "Keep changes focused.\n", count: 20_000)
+        let store = DevModeStore()
+        store.globalInstructions = instructions
+
+        XCTAssertEqual(DevModeStore().globalInstructions, instructions)
+    }
+
+    func testNewConversationPromptIncludesGlobalInstructionsAndProjectContext() {
+        let prompt = DevModePrompt.initial(globalInstructions: "Prefer concise diffs.", projectMemory: "Use SwiftUI.", userRequest: "Fix the settings screen.")
+
+        XCTAssertTrue(prompt.contains("Global Dev Mode instructions:\nPrefer concise diffs."))
+        XCTAssertTrue(prompt.contains("Project context:\nUse SwiftUI."))
+        XCTAssertTrue(prompt.hasSuffix("User request:\nFix the settings screen."))
+    }
+
+    func testGitWorktreeCreatesNewBranchWithoutDirtyingSource() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let repository = root.appending(path: "repo", directoryHint: .isDirectory)
+        let worktreeParent = root.appending(path: "worktrees", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: worktreeParent, withIntermediateDirectories: true)
+        _ = try runGit(at: repository, arguments: ["init", "-b", "main"])
+        _ = try runGit(at: repository, arguments: ["config", "user.name", "Dev Mode Test"])
+        _ = try runGit(at: repository, arguments: ["config", "user.email", "dev-mode@example.test"])
+        try "tracked".write(to: repository.appending(path: "README.md"), atomically: true, encoding: .utf8)
+        _ = try runGit(at: repository, arguments: ["add", "README.md"])
+        _ = try runGit(at: repository, arguments: ["commit", "-m", "Initial commit"])
+
+        let destination = try DevModeGitWorktree.create(project: repository, parent: worktreeParent, branch: "feature/request")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.appending(path: "README.md").path))
+        XCTAssertEqual(try runGit(at: destination, arguments: ["branch", "--show-current"]), "feature/request")
+        XCTAssertEqual(try runGit(at: repository, arguments: ["status", "--porcelain"]), "")
+    }
+
+    func testGitWorktreeRejectsExistingDestinationAndInvalidBranch() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let repository = root.appending(path: "repo", directoryHint: .isDirectory)
+        let parent = root.appending(path: "worktrees", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        _ = try runGit(at: repository, arguments: ["init", "-b", "main"])
+        _ = try runGit(at: repository, arguments: ["config", "user.name", "Dev Mode Test"])
+        _ = try runGit(at: repository, arguments: ["config", "user.email", "dev-mode@example.test"])
+        try "tracked".write(to: repository.appending(path: "README.md"), atomically: true, encoding: .utf8)
+        _ = try runGit(at: repository, arguments: ["add", "README.md"])
+        _ = try runGit(at: repository, arguments: ["commit", "-m", "Initial commit"])
+        let existing = parent.appending(path: "repo-feature-existing", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: false)
+
+        XCTAssertThrowsError(try DevModeGitWorktree.create(project: repository, parent: parent, branch: "feature/existing"))
+        XCTAssertThrowsError(try DevModeGitWorktree.create(project: repository, parent: parent, branch: "bad..branch"))
+        XCTAssertEqual(try runGit(at: repository, arguments: ["status", "--porcelain"]), "")
+    }
+
+    private func runGit(at directory: URL, arguments: [String]) throws -> String {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path] + arguments
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let result = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard process.terminationStatus == 0 else { throw NSError(domain: "GitTest", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: result]) }
+        return result
+    }
+
+    @MainActor
     func testCodexShowsOneFinalReplyAfterInterimMessages() throws {
         let defaults = UserDefaults.standard
         let key = "devModeTasks"

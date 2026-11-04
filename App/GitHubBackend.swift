@@ -69,6 +69,7 @@ enum GitHubBackendError: LocalizedError, Equatable {
     case incorrectClientCredentials
     case unauthorized
     case forbidden(String?)
+    case actionsAccessDenied(String?)
     case contributionAccessDenied
     case invalidPullRequestAction
     case pullRequestNotMergeable
@@ -90,6 +91,8 @@ enum GitHubBackendError: LocalizedError, Equatable {
         case .unauthorized: "GitHub sign-in expired. Sign in again to refresh repository access."
         case .forbidden(let message):
             "GitHub denied access.\(message.map { " GitHub said: \($0)." } ?? "") Check the GitHub App's Pull requests: write permission, repository installation access, and organization approval."
+        case .actionsAccessDenied(let message):
+            "GitHub Actions access was denied.\(message.map { " GitHub said: \($0)." } ?? "") Actions: read is needed to browse workflows; Actions: write is only needed to dispatch them. Check the GitHub App permission and repository installation, then sign in again."
         case .contributionAccessDenied: "GitHub denied contribution access. Check the app's read permissions and contribution privacy settings."
         case .invalidPullRequestAction: "The pull request details are invalid. Check the title, branches, message, and pull request number."
         case .pullRequestNotMergeable: "GitHub rejected the merge. Check the pull request's merge conflicts, required reviews, checks, and branch protection rules."
@@ -316,7 +319,29 @@ protocol GitHubViewerProviding: Sendable {
     func viewerLogin(accessToken: String) async throws -> String
 }
 
-struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding, GitHubPullRequestManaging, GitHubContributionProviding, GitHubViewerProviding {
+private struct GitHubWorkflowPage: Decodable {
+    let totalCount: Int
+    let workflows: [GitHubWorkflow]
+
+    enum CodingKeys: String, CodingKey { case totalCount = "total_count", workflows }
+}
+
+struct GitHubWorkflow: Decodable, Identifiable, Sendable {
+    let id: Int64
+    let name: String
+    let path: String
+    let state: String
+    let htmlURL: URL
+
+    enum CodingKeys: String, CodingKey { case id, name, path, state; case htmlURL = "html_url" }
+}
+
+protocol GitHubActionsProviding: Sendable {
+    func workflows(repository: GitHubRepository, accessToken: String) async throws -> [GitHubWorkflow]
+    func dispatchWorkflow(repository: GitHubRepository, workflowID: Int64, ref: String, inputs: [String: String], accessToken: String) async throws
+}
+
+struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding, GitHubPullRequestManaging, GitHubContributionProviding, GitHubViewerProviding, GitHubActionsProviding {
     static let apiVersion = "2026-03-10"
     private let transport: any GitHubHTTPTransport
 
@@ -356,6 +381,55 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
             repositories.append(contentsOf: pageRepositories)
             guard pageRepositories.count == 100 else { return repositories }
             page += 1
+        }
+    }
+
+    func workflows(repository: GitHubRepository, accessToken: String) async throws -> [GitHubWorkflow] {
+        guard !accessToken.isEmpty else { throw GitHubBackendError.unauthorized }
+        let url = try repositoryAPIURL(repository, endpoint: "actions/workflows")
+        do {
+            var page = 1
+            var results: [GitHubWorkflow] = []
+            var totalCount = 0
+            repeat {
+                var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+                components?.queryItems = [URLQueryItem(name: "per_page", value: "100"), URLQueryItem(name: "page", value: String(page))]
+                guard let pageURL = components?.url else { throw GitHubBackendError.invalidResponse }
+                var request = URLRequest(url: pageURL)
+                request.httpMethod = "GET"
+                request.timeoutInterval = 20
+                request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+                request.setValue(Self.apiVersion, forHTTPHeaderField: "X-GitHub-Api-Version")
+                request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+                let response = try await transport.send(request)
+                try validate(response)
+                guard let payload = try? JSONDecoder().decode(GitHubWorkflowPage.self, from: response.data) else {
+                    throw GitHubBackendError.invalidResponse
+                }
+                totalCount = payload.totalCount
+                results.append(contentsOf: payload.workflows)
+                page += 1
+                if payload.workflows.isEmpty { break }
+            } while results.count < totalCount
+            return results
+        } catch GitHubBackendError.forbidden(let reason) {
+            throw GitHubBackendError.actionsAccessDenied(reason)
+        }
+    }
+
+    func dispatchWorkflow(repository: GitHubRepository, workflowID: Int64, ref: String, inputs: [String: String] = [:], accessToken: String) async throws {
+        let ref = ref.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard workflowID > 0, !ref.isEmpty, ref.utf8.count <= 255, inputs.count <= 25,
+              inputs.keys.allSatisfy({ !$0.isEmpty && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }),
+              !ref.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
+            throw GitHubBackendError.invalidPullRequestAction
+        }
+        do {
+            var body: [String: Any] = ["ref": ref]
+            if !inputs.isEmpty { body["inputs"] = inputs }
+            try await mutate(repository: repository, endpoint: "actions/workflows/\(workflowID)/dispatches", method: "POST", body: body, accessToken: accessToken)
+        } catch GitHubBackendError.forbidden(let reason) {
+            throw GitHubBackendError.actionsAccessDenied(reason)
         }
     }
 
@@ -609,8 +683,22 @@ struct GitHubAPIClient: GitHubRepositoryProviding, GitHubProjectHistoryProviding
         return results
     }
 
+    private func repositoryAPIURL(_ repository: GitHubRepository, endpoint: String) throws -> URL {
+        guard !endpoint.hasPrefix("/"), !endpoint.contains("..") else { throw GitHubBackendError.invalidResponse }
+        let parts = repository.fullName.split(separator: "/")
+        guard parts.count == 2, let repositoryURL = repository.safeGitHubURL,
+              repositoryURL.path == "/\(repository.fullName)" else { throw GitHubBackendError.invalidResponse }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        guard let owner = String(parts[0]).addingPercentEncoding(withAllowedCharacters: allowed),
+              let name = String(parts[1]).addingPercentEncoding(withAllowedCharacters: allowed),
+              let url = URL(string: "https://api.github.com/repos/\(owner)/\(name)/\(endpoint)") else {
+            throw GitHubBackendError.invalidResponse
+        }
+        return url
+    }
+
     @discardableResult
-    private func mutate(repository: GitHubRepository, endpoint: String, method: String = "POST", body: [String: String], accessToken: String) async throws -> Data {
+    private func mutate(repository: GitHubRepository, endpoint: String, method: String = "POST", body: [String: Any], accessToken: String) async throws -> Data {
         guard !accessToken.isEmpty else { throw GitHubBackendError.unauthorized }
         let parts = repository.fullName.split(separator: "/")
         guard parts.count == 2, let repositoryURL = repository.safeGitHubURL, repositoryURL.path == "/\(repository.fullName)" else {
