@@ -504,6 +504,55 @@ struct GitHubBackendTests {
         }
     }
 
+    @Test func listsAndDispatchesGitHubActionsWorkflows() async throws {
+        let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 3).utf8))
+        let workflowList = #"{"total_count":1,"workflows":[{"id":42,"name":"CI","path":".github/workflows/ci.yml","state":"active","html_url":"https://github.com/octocat/Hello-World/actions/workflows/ci.yml"}]}"#
+        let transport = StubTransport([
+            .init(statusCode: 200, data: Data(workflowList.utf8), headers: [:]),
+            .init(statusCode: 204, data: Data(), headers: [:])
+        ])
+        let api = GitHubAPIClient(transport: transport)
+
+        let workflows = try await api.workflows(repository: repository, accessToken: "test-token")
+        try await api.dispatchWorkflow(repository: repository, workflowID: 42, ref: "feature/run-test", inputs: ["environment": "staging"], accessToken: "test-token")
+        let requests = await transport.requests()
+        let dispatchBody = try #require(requests[1].httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+
+        #expect(workflows.map(\.id) == [42])
+        #expect(requests[0].url?.path == "/repos/owner/repo-3/actions/workflows")
+        #expect(requests[0].url?.query?.contains("per_page=100") == true)
+        #expect(requests.map(\.httpMethod) == ["GET", "POST"])
+        #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer test-token" })
+        #expect(requests[1].url?.path == "/repos/owner/repo-3/actions/workflows/42/dispatches")
+        #expect(dispatchBody["ref"] as? String == "feature/run-test")
+        #expect((dispatchBody["inputs"] as? [String: String]) == ["environment": "staging"])
+    }
+
+    @Test func requiresActionsWritePermissionAndValidDispatchInputs() async throws {
+        let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 3).utf8))
+        let denied = StubTransport([.init(statusCode: 403, data: Data(#"{"message":"Resource not accessible by integration"}"#.utf8), headers: [:])])
+        let api = GitHubAPIClient(transport: denied)
+
+        await #expect(throws: GitHubBackendError.actionsAccessDenied("Resource not accessible by integration")) {
+            try await api.dispatchWorkflow(repository: repository, workflowID: 42, ref: "main", accessToken: "test-token")
+        }
+        let noRequests = StubTransport([])
+        let validationAPI = GitHubAPIClient(transport: noRequests)
+        await #expect(throws: GitHubBackendError.invalidPullRequestAction) {
+            try await validationAPI.dispatchWorkflow(repository: repository, workflowID: 0, ref: "main", accessToken: "test-token")
+        }
+        await #expect(throws: GitHubBackendError.invalidPullRequestAction) {
+            try await validationAPI.dispatchWorkflow(repository: repository, workflowID: 42, ref: " \n", accessToken: "test-token")
+        }
+        await #expect(throws: GitHubBackendError.invalidPullRequestAction) {
+            try await validationAPI.dispatchWorkflow(repository: repository, workflowID: 42, ref: "main", inputs: Dictionary(uniqueKeysWithValues: (0..<26).map { ("input\($0)", "value") }), accessToken: "test-token")
+        }
+        await #expect(throws: GitHubBackendError.unauthorized) {
+            try await validationAPI.workflows(repository: repository, accessToken: "")
+        }
+        #expect(await noRequests.requests().isEmpty)
+    }
+
     @Test func rejectsInvalidPullRequestWritesBeforeNetwork() async throws {
         let repository = try JSONDecoder().decode(GitHubRepository.self, from: Data(repositoryJSON(id: 3).utf8))
         let transport = StubTransport([])
